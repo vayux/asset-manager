@@ -1,0 +1,63 @@
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
+
+// Asset model represents any positive-valued item owned by a user that is not necessarily an investment
+// Examples: property, vehicle, cash, collectibles etc.
+const Asset = sequelize.define('Asset', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'id',
+    },
+  },
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    validate: {
+      len: [1, 100],
+    },
+  },
+  category: {
+    type: DataTypes.ENUM('cash', 'real_estate', 'vehicle', 'business', 'collectible', 'stocks', 'gadgets', 'other'),
+    allowNull: false,
+    defaultValue: 'other',
+  },
+  currentValue: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+    validate: {
+      min: 0,
+    },
+  },
+  purchaseDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+  },
+  depreciationRate: {
+    type: DataTypes.DECIMAL(5, 2),
+    allowNull: true,
+    field: 'depreciation_rate',
+    validate: {
+      min: 0,
+      max: 100,
+    },
+  },
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  isActive: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+  },
+});
+
+module.exports = Asset; 

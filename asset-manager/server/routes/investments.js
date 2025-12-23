@@ -1,0 +1,376 @@
+const express = require('express');
+const { body, validationResult, param } = require('express-validator');
+const { Investment, InvestmentHistory } = require('../models');
+const authMiddleware = require('../middleware/auth');
+const { Op } = require('sequelize');
+const { format } = require('date-fns');
+const { sendInvestmentUpdate } = require('../utils/emailService');
+
+const router = express.Router();
+
+// All routes require authentication
+router.use(authMiddleware);
+
+// helper
+const getMonthRange = (monthStr) => {
+  const [year, month] = monthStr.split('-').map(Number);
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  return { start, end };
+};
+
+// Get all investments for the authenticated user
+router.get('/', async (req, res) => {
+  try {
+    const { category, active = 'true', month, includeHistory } = req.query;
+    
+    const whereClause = { userId: req.user.id };
+    if (category) {
+      whereClause.category = category;
+    }
+    if (active !== 'all') {
+      whereClause.isActive = active === 'true';
+    }
+
+    if (month) {
+      const { start, end } = getMonthRange(month);
+      whereClause.investmentDate = { [Op.between]: [start, end] };
+    }
+
+    // Build include array conditionally
+    const include = [];
+    if (includeHistory === 'true') {
+      include.push({
+        model: InvestmentHistory,
+        as: 'history',
+        attributes: ['valuationDate', 'amount'],
+        required: false,
+        // history will be sorted later on the front-end as Sequelize doesn't guarantee ordering inside nested include
+      });
+    }
+
+    const investments = await Investment.findAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']],
+      include,
+    });
+
+    res.json({ investments });
+  } catch (error) {
+    console.error('Fetch investments error:', error);
+    res.status(500).json({ message: 'Failed to fetch investments' });
+  }
+});
+
+// Get investment by ID
+router.get('/:id', [
+  param('id').isUUID().withMessage('Invalid investment ID'),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation errors', 
+        errors: errors.array() 
+      });
+    }
+
+    const investment = await Investment.findOne({
+      where: { 
+        id: req.params.id,
+        userId: req.user.id 
+      }
+    });
+
+    if (!investment) {
+      return res.status(404).json({ message: 'Investment not found' });
+    }
+
+    res.json({ investment });
+  } catch (error) {
+    console.error('Fetch investment error:', error);
+    res.status(500).json({ message: 'Failed to fetch investment' });
+  }
+});
+
+// Create new investment
+router.post('/', [
+  body('name').notEmpty().trim().withMessage('Investment name is required'),
+  body('category').isIn([
+    'bank_account',
+    'fixed_deposit',
+    'recurring_deposit',
+    'stocks',
+    'mutual_funds',
+    'provident_fund',
+    'insurance',
+    'gold',
+    'real_estate',
+    'crypto',
+    'personal_loan',
+    'other'
+  ]).withMessage('Invalid category'),
+  body('currentAmount').isFloat({ min: 0 }).withMessage('Current amount must be a positive number'),
+  body('initialAmount').optional().isFloat({ min: 0 }),
+  body('interestRate').optional().isFloat({ min: 0, max: 100 }),
+  body('maturityDate').optional().isISO8601(),
+  body('investmentDate').optional().isISO8601(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation errors', 
+        errors: errors.array() 
+      });
+    }
+
+    const investmentData = {
+      ...req.body,
+      userId: req.user.id,
+    };
+
+    // If no investmentDate provided, default to today so that portfolio analytics work correctly
+    if (!investmentData.investmentDate) {
+      investmentData.investmentDate = format(new Date(), 'yyyy-MM-dd');
+    }
+
+    const investment = await Investment.create(investmentData);
+
+    // Send investment update email
+    try {
+      await sendInvestmentUpdate(
+        req.user,
+        'New Investment Added',
+        investment.name,
+        investment.currentAmount
+      );
+    } catch (emailError) {
+      console.error('Failed to send investment creation notification:', emailError);
+      // Don't fail the investment creation if email fails
+    }
+
+    res.status(201).json({
+      message: 'Investment created successfully',
+      investment,
+    });
+  } catch (error) {
+    console.error('Create investment error:', error);
+    res.status(500).json({ message: 'Failed to create investment' });
+  }
+});
+
+// Update investment
+router.put('/:id', [
+  param('id').isUUID().withMessage('Invalid investment ID'),
+  body('name').optional().notEmpty().trim(),
+  body('category').optional().isIn([
+    'bank_account',
+    'fixed_deposit',
+    'recurring_deposit',
+    'stocks',
+    'mutual_funds',
+    'provident_fund',
+    'insurance',
+    'gold',
+    'real_estate',
+    'crypto',
+    'personal_loan',
+    'other'
+  ]),
+  body('currentAmount').optional().isFloat({ min: 0 }),
+  body('initialAmount').optional().isFloat({ min: 0 }),
+  body('interestRate').optional().isFloat({ min: 0, max: 100 }),
+  body('maturityDate').optional().isISO8601(),
+  body('investmentDate').optional().isISO8601(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation errors', 
+        errors: errors.array() 
+      });
+    }
+
+    const investment = await Investment.findOne({
+      where: { 
+        id: req.params.id,
+        userId: req.user.id 
+      }
+    });
+
+    if (!investment) {
+      return res.status(404).json({ message: 'Investment not found' });
+    }
+
+    const prevAmount = investment.currentAmount;
+    const prevDate = investment.investmentDate;
+
+    await investment.update(req.body);
+
+    // If amount or date changed, add history entry
+    if ((req.body.currentAmount && req.body.currentAmount != prevAmount) || (req.body.investmentDate && req.body.investmentDate !== prevDate)) {
+      const valuationDate = req.body.investmentDate || format(new Date(), 'yyyy-MM-dd');
+      await InvestmentHistory.create({
+        investmentId: investment.id,
+        valuationDate,
+        amount: req.body.currentAmount || prevAmount,
+      });
+
+      // Send investment update email if amount changed significantly
+      if (req.body.currentAmount && Math.abs(req.body.currentAmount - prevAmount) > 0) {
+        try {
+          await sendInvestmentUpdate(
+            req.user,
+            'Investment Value Updated',
+            investment.name,
+            req.body.currentAmount
+          );
+        } catch (emailError) {
+          console.error('Failed to send investment update notification:', emailError);
+          // Don't fail the investment update if email fails
+        }
+      }
+    }
+
+    res.json({ message: 'Investment updated successfully', investment });
+  } catch (error) {
+    console.error('Update investment error:', error);
+    res.status(500).json({ message: 'Failed to update investment' });
+  }
+});
+
+// Delete investment (soft delete by setting isActive to false)
+router.delete('/:id', [
+  param('id').isUUID().withMessage('Invalid investment ID'),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation errors', 
+        errors: errors.array() 
+      });
+    }
+
+    const investment = await Investment.findOne({
+      where: { 
+        id: req.params.id,
+        userId: req.user.id 
+      }
+    });
+
+    if (!investment) {
+      return res.status(404).json({ message: 'Investment not found' });
+    }
+
+    await investment.update({ isActive: false });
+
+    res.json({ message: 'Investment deleted successfully' });
+  } catch (error) {
+    console.error('Delete investment error:', error);
+    res.status(500).json({ message: 'Failed to delete investment' });
+  }
+});
+
+// Get investment summary by category
+router.get('/summary/category', async (req, res) => {
+  try {
+    const { sequelize } = require('../config/database');
+    
+    const summary = await Investment.findAll({
+      where: {
+        userId: req.user.id,
+        isActive: true,
+      },
+      attributes: [
+        'category',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+        [sequelize.fn('SUM', sequelize.col('current_amount')), 'totalAmount'],
+      ],
+      group: ['category'],
+      raw: true,
+    });
+
+    res.json({ summary });
+  } catch (error) {
+    console.error('Investment summary error:', error);
+    res.status(500).json({ message: 'Failed to fetch investment summary' });
+  }
+});
+
+// Update investment value (create history)
+router.post('/:id/value', [
+  param('id').isUUID(),
+  body('amount').isFloat({ min: 0 }),
+  body('valuationDate').isISO8601(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Validation errors', errors: errors.array() });
+    }
+
+    const { amount, valuationDate } = req.body;
+    const investment = await Investment.findOne({ where: { id: req.params.id, userId: req.user.id } });
+    if (!investment) return res.status(404).json({ message: 'Investment not found' });
+
+    // Create history entry
+    await InvestmentHistory.create({
+      investmentId: investment.id,
+      valuationDate,
+      amount,
+    });
+
+    // Update current amount & date
+    await investment.update({ currentAmount: amount, investmentDate: valuationDate });
+
+    res.json({ message: 'Value updated', investment });
+  } catch (e) {
+    console.error('update value error', e);
+    res.status(500).json({ message: 'Failed to update value' });
+  }
+});
+
+// Get history for investment
+router.get('/:id/history', [param('id').isUUID()], async (req,res)=>{
+  try{
+    const errors = validationResult(req);
+    if(!errors.isEmpty()) return res.status(400).json({message:'Invalid id'});
+    const histories = await InvestmentHistory.findAll({
+      where:{investmentId:req.params.id},
+      order:[['valuationDate','ASC']],
+      raw:true,
+    });
+    res.json({histories});
+  }catch(e){
+    console.error('history error',e);
+    res.status(500).json({message:'Failed to fetch history'});
+  }
+});
+
+// Bulk create investments
+router.post('/bulk', [
+  body().isArray({min:1}).withMessage('Array required'),
+  body('*.name').notEmpty(),
+  body('*.category').optional().isString(),
+  body('*.currentAmount').isFloat({min:0}),
+  body('*.investmentDate').optional().isISO8601(),
+], async (req,res)=>{
+  const errors = validationResult(req); if(!errors.isEmpty()) return res.status(400).json({errors:errors.array()});
+  try {
+    const rows = req.body;
+    const created = await Promise.all(rows.map(r=>Investment.create({
+      userId: req.user.id,
+      name: r.name.trim(),
+      category: r.category || 'other',
+      currentAmount: r.currentAmount,
+      investmentDate: r.investmentDate || format(new Date(),'yyyy-MM-dd'),
+    })));
+    res.status(201).json({created});
+  }catch(err){ console.error(err); res.status(500).json({message:'bulk insert failed'}); }
+});
+
+// Export router
+module.exports = router; 
