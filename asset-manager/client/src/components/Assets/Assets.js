@@ -24,7 +24,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
     name: asset?.name || '',
     category: asset?.category || 'cash',
-    currentValue: asset?.currentValue || '',
+    currentValue: asset?.originalValue ?? asset?.currentValue ?? '',
     purchaseDate: asset?.purchaseDate || '',
     depreciationRate: asset?.depreciationRate || '',
   });

@@ -193,3 +193,53 @@ describe('input bounds', () => {
     }
   });
 });
+
+describe('notification settings', () => {
+  it('reads back disabled preferences', async () => {
+    const put = await request(app)
+      .put('/api/settings/notifications')
+      .set(auth(alice))
+      .send({ emailNotifications: false, securityAlerts: false, investmentUpdates: true });
+    expect(put.status).toBe(200);
+
+    const res = await request(app).get('/api/settings/notifications').set(auth(alice));
+    expect(res.body.data).toEqual({ emailNotifications: false, securityAlerts: false, investmentUpdates: true });
+  });
+});
+
+describe('asset depreciation', () => {
+  it('saving the original value back does not compound depreciation', async () => {
+    const created = await request(app)
+      .post('/api/assets')
+      .set(auth(bob))
+      .send({ name: 'Laptop', category: 'gadgets', currentValue: 100000, purchaseDate: '2020-01-01', depreciationRate: 10 });
+    const id = created.body.asset.id;
+
+    const before = (await request(app).get('/api/assets').set(auth(bob))).body.assets.find((a) => a.id === id);
+    expect(before.originalValue).toBe(100000);
+    expect(before.bookValue).toBeLessThan(100000);
+
+    await request(app).put(`/api/assets/${id}`).set(auth(bob)).send({ name: 'Laptop 2', currentValue: before.originalValue });
+
+    const after = (await request(app).get('/api/assets').set(auth(bob))).body.assets.find((a) => a.id === id);
+    expect(after.originalValue).toBe(100000);
+    expect(after.bookValue).toBeCloseTo(before.bookValue, 0);
+  });
+});
+
+describe('email service', () => {
+  it('creates an SMTP transporter when EMAIL_HOST is set', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    process.env.EMAIL_HOST = 'smtp.example.com';
+    try {
+      jest.isolateModules(() => require('../utils/emailService'));
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith('Email service initialized successfully');
+    } finally {
+      delete process.env.EMAIL_HOST;
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+});

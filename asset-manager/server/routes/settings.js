@@ -21,9 +21,9 @@ router.get('/notifications', authMiddleware, async (req, res) => {
     res.json({
       success: true,
       data: {
-        emailNotifications: user.emailNotifications || true,
-        securityAlerts: user.securityAlerts || true,
-        investmentUpdates: user.investmentUpdates || false
+        emailNotifications: user.emailNotifications ?? true,
+        securityAlerts: user.securityAlerts ?? true,
+        investmentUpdates: user.investmentUpdates ?? false
       }
     });
   } catch (error) {

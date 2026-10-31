@@ -87,8 +87,6 @@ const Login = () => {
         loginData.backupCode = formData.backupCode;
       }
 
-      console.log('Login data:', { ...loginData, password: '[HIDDEN]' }); // Debug log
-
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -96,12 +94,11 @@ const Login = () => {
       });
 
       const data = await response.json();
-      console.log('Login response:', data); // Debug log
 
       if (data.requiresMFA && !requiresMFA) {
         // First time - MFA is required
         setRequiresMFA(true);
-        toast.info('Please enter your 2FA code to continue');
+        toast('Please enter your 2FA code to continue');
       } else if (data.success && (data.accessToken || data.token)) {
         // Login successful - set tokens and reload to update auth state
         const { accessToken, refreshToken, token, user } = data;
