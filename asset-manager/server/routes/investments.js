@@ -1,15 +1,46 @@
 const express = require('express');
-const { body, validationResult, param } = require('express-validator');
+const { body, validationResult, param, query } = require('express-validator');
 const { Investment, InvestmentHistory } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { Op } = require('sequelize');
 const { format } = require('date-fns');
 const { sendInvestmentUpdate } = require('../utils/emailService');
+const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
+const pick = require('../utils/pick');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authMiddleware);
+
+const INVESTMENT_CATEGORIES = [
+  'bank_account',
+  'fixed_deposit',
+  'recurring_deposit',
+  'stocks',
+  'mutual_funds',
+  'provident_fund',
+  'insurance',
+  'gold',
+  'real_estate',
+  'crypto',
+  'personal_loan',
+  'other',
+];
+
+const INVESTMENT_FIELDS = [
+  'name',
+  'category',
+  'subCategory',
+  'currentAmount',
+  'initialAmount',
+  'interestRate',
+  'maturityDate',
+  'accountNumber',
+  'institutionName',
+  'description',
+  'investmentDate',
+];
 
 // helper
 const getMonthRange = (monthStr) => {
@@ -19,8 +50,37 @@ const getMonthRange = (monthStr) => {
   return { start, end };
 };
 
+// Get investment summary by category
+router.get('/summary/category', async (req, res) => {
+  try {
+    const { sequelize } = require('../config/database');
+    
+    const summary = await Investment.findAll({
+      where: {
+        userId: req.user.id,
+        isActive: true,
+      },
+      attributes: [
+        'category',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+        [sequelize.fn('SUM', sequelize.col('current_amount')), 'totalAmount'],
+      ],
+      group: ['category'],
+      raw: true,
+    });
+
+    res.json({ summary });
+  } catch (error) {
+    console.error('Investment summary error:', error);
+    res.status(500).json({ message: 'Failed to fetch investment summary' });
+  }
+});
+
 // Get all investments for the authenticated user
-router.get('/', async (req, res) => {
+router.get('/', [
+  query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'),
+  handleValidation,
+], async (req, res) => {
   try {
     const { category, active = 'true', month, includeHistory } = req.query;
     
@@ -96,20 +156,7 @@ router.get('/:id', [
 // Create new investment
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Investment name is required'),
-  body('category').isIn([
-    'bank_account',
-    'fixed_deposit',
-    'recurring_deposit',
-    'stocks',
-    'mutual_funds',
-    'provident_fund',
-    'insurance',
-    'gold',
-    'real_estate',
-    'crypto',
-    'personal_loan',
-    'other'
-  ]).withMessage('Invalid category'),
+  body('category').isIn(INVESTMENT_CATEGORIES).withMessage('Invalid category'),
   body('currentAmount').isFloat({ min: 0 }).withMessage('Current amount must be a positive number'),
   body('initialAmount').optional().isFloat({ min: 0 }),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -126,7 +173,7 @@ router.post('/', [
     }
 
     const investmentData = {
-      ...req.body,
+      ...pick(req.body, INVESTMENT_FIELDS),
       userId: req.user.id,
     };
 
@@ -164,20 +211,7 @@ router.post('/', [
 router.put('/:id', [
   param('id').isUUID().withMessage('Invalid investment ID'),
   body('name').optional().notEmpty().trim(),
-  body('category').optional().isIn([
-    'bank_account',
-    'fixed_deposit',
-    'recurring_deposit',
-    'stocks',
-    'mutual_funds',
-    'provident_fund',
-    'insurance',
-    'gold',
-    'real_estate',
-    'crypto',
-    'personal_loan',
-    'other'
-  ]),
+  body('category').optional().isIn(INVESTMENT_CATEGORIES),
   body('currentAmount').optional().isFloat({ min: 0 }),
   body('initialAmount').optional().isFloat({ min: 0 }),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -207,7 +241,7 @@ router.put('/:id', [
     const prevAmount = investment.currentAmount;
     const prevDate = investment.investmentDate;
 
-    await investment.update(req.body);
+    await investment.update(pick(req.body, INVESTMENT_FIELDS));
 
     // If amount or date changed, add history entry
     if ((req.body.currentAmount && req.body.currentAmount != prevAmount) || (req.body.investmentDate && req.body.investmentDate !== prevDate)) {
@@ -274,32 +308,6 @@ router.delete('/:id', [
   }
 });
 
-// Get investment summary by category
-router.get('/summary/category', async (req, res) => {
-  try {
-    const { sequelize } = require('../config/database');
-    
-    const summary = await Investment.findAll({
-      where: {
-        userId: req.user.id,
-        isActive: true,
-      },
-      attributes: [
-        'category',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
-        [sequelize.fn('SUM', sequelize.col('current_amount')), 'totalAmount'],
-      ],
-      group: ['category'],
-      raw: true,
-    });
-
-    res.json({ summary });
-  } catch (error) {
-    console.error('Investment summary error:', error);
-    res.status(500).json({ message: 'Failed to fetch investment summary' });
-  }
-});
-
 // Update investment value (create history)
 router.post('/:id/value', [
   param('id').isUUID(),
@@ -338,6 +346,8 @@ router.get('/:id/history', [param('id').isUUID()], async (req,res)=>{
   try{
     const errors = validationResult(req);
     if(!errors.isEmpty()) return res.status(400).json({message:'Invalid id'});
+    const investment = await Investment.findOne({ where: { id: req.params.id, userId: req.user.id } });
+    if (!investment) return res.status(404).json({ message: 'Investment not found' });
     const histories = await InvestmentHistory.findAll({
       where:{investmentId:req.params.id},
       order:[['valuationDate','ASC']],
@@ -354,7 +364,7 @@ router.get('/:id/history', [param('id').isUUID()], async (req,res)=>{
 router.post('/bulk', [
   body().isArray({min:1}).withMessage('Array required'),
   body('*.name').notEmpty(),
-  body('*.category').optional().isString(),
+  body('*.category').optional().isIn(INVESTMENT_CATEGORIES),
   body('*.currentAmount').isFloat({min:0}),
   body('*.investmentDate').optional().isISO8601(),
 ], async (req,res)=>{

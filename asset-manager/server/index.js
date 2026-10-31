@@ -1,4 +1,5 @@
 const express = require('express');
+require('express-async-errors');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -48,7 +49,9 @@ const generalLimiter = rateLimit({
 app.use(generalLimiter);
 
 // Logging
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+}
 
 // CORS configuration
 app.use(cors({
@@ -80,18 +83,19 @@ app.get('/api/health', (req, res) => {
   res.json({ message: 'MoneyMind API is running!', timestamp: new Date().toISOString() });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    message: 'Something went wrong!', 
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error' 
-  });
-});
-
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });
+});
+
+// Error handling middleware (async route errors reach here via express-async-errors)
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) console.error(err.stack);
+  res.status(status).json({ 
+    message: status >= 500 ? 'Something went wrong!' : err.message, 
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error' 
+  });
 });
 
 // Database connection and server start
@@ -114,4 +118,8 @@ const startServer = async () => {
   }
 };
 
-startServer(); 
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;

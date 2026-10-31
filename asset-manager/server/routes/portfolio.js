@@ -1,13 +1,16 @@
 const express = require('express');
-const { body, validationResult, param } = require('express-validator');
+const { body, validationResult, param, query } = require('express-validator');
 const { Investment, PortfolioSnapshot, InvestmentHistory } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const { Op } = require('sequelize');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authMiddleware);
+
+const validateLimit = [query('limit').optional().isInt({ min: 1, max: 120 }).toInt(), handleValidation];
 
 // Helper to get first and last day of a month
 const getMonthRange = (monthStr) => {
@@ -19,7 +22,7 @@ const getMonthRange = (monthStr) => {
 };
 
 // Modify portfolio overview with optional month filter
-router.get('/overview', async (req, res) => {
+router.get('/overview', [query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'), handleValidation], async (req, res) => {
   try {
     const { month } = req.query; // YYYY-MM
 
@@ -55,7 +58,7 @@ router.get('/overview', async (req, res) => {
 });
 
 // Monthly analytics: returns totals per month for last N months
-router.get('/analytics/monthly', async (req, res) => {
+router.get('/analytics/monthly', validateLimit, async (req, res) => {
   try {
     const { limit = 12 } = req.query;
 
@@ -88,7 +91,7 @@ router.get('/analytics/monthly', async (req, res) => {
 });
 
 // Category totals per month (stacked bar)
-router.get('/analytics/stacked', async (req, res) => {
+router.get('/analytics/stacked', validateLimit, async (req, res) => {
   try {
     const { limit = 12 } = req.query;
     const { sequelize } = require('../config/database');

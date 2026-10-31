@@ -3,11 +3,15 @@ const { body, param, validationResult } = require('express-validator');
 const { Asset } = require('../models');
 const { AssetValuation } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { handleValidation } = require('../middleware/validate');
+const pick = require('../utils/pick');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authMiddleware);
+
+const ASSET_FIELDS = ['name', 'category', 'currentValue', 'purchaseDate', 'depreciationRate', 'description'];
 
 // GET /api/assets - list assets (optional active param)
 router.get('/', async (req, res) => {
@@ -58,7 +62,7 @@ router.post('/', [
     return res.status(400).json({ message: 'Validation errors', errors: errors.array() });
   }
   try {
-    const asset = await Asset.create({ ...req.body, userId: req.user.id });
+    const asset = await Asset.create({ ...pick(req.body, ASSET_FIELDS), userId: req.user.id });
     res.status(201).json({ message: 'Asset created', asset });
   } catch (err) {
     console.error('Create asset error:', err);
@@ -83,7 +87,7 @@ router.put('/:id', [
     const asset = await Asset.findOne({ where: { id: req.params.id, userId: req.user.id } });
     if (!asset) return res.status(404).json({ message: 'Asset not found' });
 
-    await asset.update(req.body);
+    await asset.update(pick(req.body, ASSET_FIELDS));
     res.json({ message: 'Asset updated', asset });
   } catch (err) {
     console.error('Update asset error:', err);
@@ -110,7 +114,7 @@ router.delete('/:id', [param('id').isUUID().withMessage('Invalid asset ID')], as
 });
 
 // GET valuations for asset
-router.get('/:id/valuations', async (req, res) => {
+router.get('/:id/valuations', [param('id').isUUID().withMessage('Invalid asset ID'), handleValidation], async (req, res) => {
   try {
     const { id } = req.params;
     const asset = await Asset.findOne({ where: { id, userId: req.user.id } });

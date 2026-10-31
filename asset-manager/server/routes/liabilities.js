@@ -1,11 +1,20 @@
 const express = require('express');
 const { body, param, validationResult } = require('express-validator');
-const { Liability } = require('../models');
+const { Liability, Asset } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const pick = require('../utils/pick');
 
 const router = express.Router();
 
 router.use(authMiddleware);
+
+const LIABILITY_FIELDS = ['name', 'category', 'outstandingAmount', 'interestRate', 'dueDate', 'description', 'assetId'];
+
+const assetBelongsToUser = async (assetId, userId) => {
+  if (!assetId) return true;
+  const asset = await Asset.findOne({ where: { id: assetId, userId } });
+  return !!asset;
+};
 
 // GET liabilities
 router.get('/', async (req, res) => {
@@ -28,7 +37,7 @@ router.post('/', [
   body('name').notEmpty().trim().withMessage('Liability name is required'),
   body('category').isIn(['loan', 'credit_card', 'mortgage', 'tax', 'other']).withMessage('Invalid category'),
   body('outstandingAmount').isFloat({ min: 0 }).withMessage('Outstanding amount must be positive'),
-  body('assetId').optional().isUUID().withMessage('Invalid asset ID'),
+  body('assetId').optional({ values: 'null' }).isUUID().withMessage('Invalid asset ID'),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
   body('dueDate').optional().isISO8601().toDate(),
 ], async (req, res) => {
@@ -37,7 +46,11 @@ router.post('/', [
     return res.status(400).json({ message: 'Validation errors', errors: errors.array() });
   }
   try {
-    const liability = await Liability.create({ ...req.body, userId: req.user.id });
+    const data = pick(req.body, LIABILITY_FIELDS);
+    if (!(await assetBelongsToUser(data.assetId, req.user.id))) {
+      return res.status(400).json({ message: 'Invalid asset ID' });
+    }
+    const liability = await Liability.create({ ...data, userId: req.user.id });
     res.status(201).json({ message: 'Liability created', liability });
   } catch (err) {
     console.error('Create liability error:', err);
@@ -51,7 +64,7 @@ router.put('/:id', [
   body('name').optional().notEmpty().trim(),
   body('category').optional().isIn(['loan', 'credit_card', 'mortgage', 'tax', 'other']),
   body('outstandingAmount').optional().isFloat({ min: 0 }),
-  body('assetId').optional().isUUID().withMessage('Invalid asset ID'),
+  body('assetId').optional({ values: 'null' }).isUUID().withMessage('Invalid asset ID'),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
   body('dueDate').optional().isISO8601().toDate(),
 ], async (req, res) => {
@@ -63,7 +76,11 @@ router.put('/:id', [
     const liability = await Liability.findOne({ where: { id: req.params.id, userId: req.user.id } });
     if (!liability) return res.status(404).json({ message: 'Liability not found' });
 
-    await liability.update(req.body);
+    const data = pick(req.body, LIABILITY_FIELDS);
+    if (!(await assetBelongsToUser(data.assetId, req.user.id))) {
+      return res.status(400).json({ message: 'Invalid asset ID' });
+    }
+    await liability.update(data);
     res.json({ message: 'Liability updated', liability });
   } catch (err) {
     console.error('Update liability error:', err);

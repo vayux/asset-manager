@@ -2,16 +2,19 @@ const express = require('express');
 const { query } = require('express-validator');
 const { Asset, Liability, Investment, Income, BudgetEntry } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const { Op } = require('sequelize');
 
 const router = express.Router();
 router.use(authMiddleware);
 
+const validateMonth = [query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'), handleValidation];
+
 // At top after imports
 const healthCache = new Map();
 
 // Financial Health Score
-router.get('/health', async (req,res)=>{
+router.get('/health', validateMonth, async (req,res)=>{
   const userId = req.user.id;
   const month = req.query.month || new Date().toISOString().slice(0,7); // YYYY-MM
   const cacheKey = `${userId}-${month}`;
@@ -93,7 +96,7 @@ router.get('/health', async (req,res)=>{
 });
 
 // Tax loss harvesting suggestions
-router.get('/tax-loss', [query('threshold').optional().isFloat({min:0,max:100})], async (req,res)=>{
+router.get('/tax-loss', [query('threshold').optional().isFloat({min:0,max:100}), handleValidation], async (req,res)=>{
   const userId = req.user.id;
   const threshold = parseFloat(req.query.threshold || 10); // percent decline
   try {
@@ -118,7 +121,7 @@ router.get('/tax-loss', [query('threshold').optional().isFloat({min:0,max:100})]
 });
 
 // Personalized recommendations based on budgets, goals and health
-router.get('/recommendations', async (req,res)=>{
+router.get('/recommendations', validateMonth, async (req,res)=>{
   const userId = req.user.id;
   const month = req.query.month || new Date().toISOString().slice(0,7);
   const recs = [];
