@@ -3,8 +3,10 @@ const router = express.Router();
 const { User } = require('../models');
 const auth = require('../middleware/auth');
 const mfaUtils = require('../utils/mfa');
-const { validateInput } = require('../utils/validation');
-const { body, validationResult } = require('express-validator');
+const { createOtpRateLimit } = require('../utils/validation');
+
+const otpSendLimit = createOtpRateLimit(3);
+const otpVerifyLimit = createOtpRateLimit(5);
 
 // Get MFA status
 router.get('/status', auth, async (req, res) => {
@@ -272,7 +274,7 @@ router.post('/backup-codes/regenerate', auth, async (req, res) => {
 });
 
 // Send email OTP (for login)
-router.post('/email-otp/send', async (req, res) => {
+router.post('/email-otp/send', otpSendLimit, async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -324,7 +326,7 @@ router.post('/email-otp/send', async (req, res) => {
 });
 
 // Verify email OTP (for login)
-router.post('/email-otp/verify', async (req, res) => {
+router.post('/email-otp/verify', otpVerifyLimit, async (req, res) => {
   try {
     const { email, otp } = req.body;
 
@@ -373,65 +375,6 @@ router.post('/email-otp/verify', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to verify email OTP' 
-    });
-  }
-});
-
-// Emergency MFA reset (for cases like email changes)
-router.post('/emergency-reset', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty(),
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: errors.array() 
-      });
-    }
-
-    const { email, password } = req.body;
-
-    // Find user by email
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ 
-        message: 'User not found',
-        code: 'USER_NOT_FOUND'
-      });
-    }
-
-    // Verify password
-    const isValidPassword = await user.validatePassword(password);
-    if (!isValidPassword) {
-      return res.status(401).json({ 
-        message: 'Invalid password',
-        code: 'INVALID_PASSWORD'
-      });
-    }
-
-    // Reset MFA settings
-    await user.update({
-      mfaEnabled: false,
-      mfaSecret: null,
-      backupCodes: null,
-      emailOtpSecret: null,
-      emailOtpExpiry: null
-    });
-
-    console.log(`Emergency MFA reset for user: ${user.id} (${email})`);
-
-    res.json({
-      success: true,
-      message: 'MFA has been reset. You can now log in and set up MFA again.'
-    });
-
-  } catch (error) {
-    console.error('Emergency MFA reset error:', error);
-    res.status(500).json({ 
-      message: 'Failed to reset MFA',
-      code: 'RESET_ERROR'
     });
   }
 });

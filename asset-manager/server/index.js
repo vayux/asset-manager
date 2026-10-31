@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const { sequelize } = require('./config/database');
+const { validateJWTSecret } = require('./utils/security');
 // Import models to ensure they are registered
 require('./models');
 const authRoutes = require('./routes/auth');
@@ -101,6 +102,7 @@ app.use((err, req, res, next) => {
 // Database connection and server start
 const startServer = async () => {
   try {
+    validateJWTSecret();
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
     

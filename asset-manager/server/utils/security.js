@@ -34,21 +34,14 @@ const generateTokens = (userId) => {
   return { accessToken, refreshToken };
 };
 
-// Verify access token (with backward compatibility)
 const verifyAccessToken = (token) => {
   try {
-    // First try with new validation (issuer/audience)
     return jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'asset-manager',
       audience: 'asset-manager-client'
     });
   } catch (error) {
-    // Fallback to old validation for existing tokens
-    try {
-      return jwt.verify(token, process.env.JWT_SECRET);
-    } catch (fallbackError) {
-      throw new Error('Invalid or expired access token');
-    }
+    throw new Error('Invalid or expired access token');
   }
 };
 

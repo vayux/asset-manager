@@ -13,39 +13,15 @@ const {
 const { 
   generateTokens, 
   verifyRefreshToken,
-  securityHeaders,
-  validateJWTSecret
+  securityHeaders
 } = require('../utils/security');
 const mfaUtils = require('../utils/mfa');
 const { sendSecurityAlert } = require('../utils/emailService');
 
 const router = express.Router();
 
-// Fallback token generation for backward compatibility
-const generateLegacyToken = (userId) => {
-  const jwt = require('jsonwebtoken');
-  return jwt.sign(
-    { userId },
-    process.env.JWT_SECRET || 'fallback_secret',
-    { expiresIn: process.env.JWT_EXPIRE || '7d' }
-  );
-};
-
 // Apply security headers to all auth routes
 router.use(securityHeaders);
-
-// Validate JWT configuration on startup (with fallback for development)
-try {
-  validateJWTSecret();
-} catch (error) {
-  console.warn('JWT Configuration Warning:', error.message);
-  if (process.env.NODE_ENV === 'production') {
-    console.error('JWT Configuration is required in production');
-    process.exit(1);
-  } else {
-    console.log('Using fallback JWT configuration for development');
-  }
-}
 
 // Apply rate limiting to auth routes
 const authRateLimit = createAuthRateLimit();
@@ -145,25 +121,13 @@ router.post('/register', [
       lastName: lastName.trim(),
     });
 
-    // Generate tokens (with fallback for missing refresh secret)
-    let responseData;
-    try {
-      const tokens = generateTokens(user.id);
-      responseData = {
-        message: 'Account created successfully',
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        user: user.toJSON(),
-      };
-    } catch (error) {
-      // Fallback to legacy token if new token generation fails
-      const token = generateLegacyToken(user.id);
-      responseData = {
-        message: 'Account created successfully',
-        token,
-        user: user.toJSON(),
-      };
-    }
+    const tokens = generateTokens(user.id);
+    const responseData = {
+      message: 'Account created successfully',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: user.toJSON(),
+    };
 
     // Log successful registration (without sensitive data)
     console.log(`New user registered: ${user.id} (${email})`);
@@ -261,20 +225,16 @@ router.post('/login', [
 
       // Try TOTP token first
       if (mfaToken && user.mfaSecret) {
-        console.log(`Attempting TOTP verification for user: ${user.id}`);
         mfaValid = mfaUtils.verifyTOTP(mfaToken, user.mfaSecret);
-        console.log(`TOTP verification result: ${mfaValid}`);
       }
 
       // Try backup code if TOTP failed
       if (!mfaValid && backupCode && user.backupCodes) {
-        console.log(`Attempting backup code verification for user: ${user.id}`);
         const backupResult = mfaUtils.verifyBackupCode(backupCode, user.backupCodes);
         if (backupResult.valid) {
           mfaValid = true;
           // Update remaining backup codes
           await user.update({ backupCodes: backupResult.remainingCodes });
-          console.log(`Backup code verification successful for user: ${user.id}`);
         }
       }
 
@@ -287,27 +247,14 @@ router.post('/login', [
       }
     }
 
-    // Generate tokens (with fallback for missing refresh secret)
-    let responseData;
-    try {
-      const tokens = generateTokens(user.id);
-      responseData = {
-        success: true,
-        message: 'Login successful',
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        user: user.toJSON(),
-      };
-    } catch (error) {
-      // Fallback to legacy token if new token generation fails
-      const token = generateLegacyToken(user.id);
-      responseData = {
-        success: true,
-        message: 'Login successful',
-        token,
-        user: user.toJSON(),
-      };
-    }
+    const tokens = generateTokens(user.id);
+    const responseData = {
+      success: true,
+      message: 'Login successful',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: user.toJSON(),
+    };
 
     // Log successful login (without sensitive data)
     console.log(`User logged in: ${user.id} (${email}) from IP: ${req.ip}`);

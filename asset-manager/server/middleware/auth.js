@@ -1,4 +1,3 @@
-const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { verifyAccessToken } = require('../utils/security');
 
@@ -15,16 +14,9 @@ const authMiddleware = async (req, res, next) => {
 
     const token = authHeader.replace('Bearer ', '');
     
-    // Verify JWT secret is properly configured
-    if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'fallback_secret') {
-      console.error('JWT_SECRET not properly configured');
-      return res.status(500).json({ message: 'Server configuration error.' });
-    }
-
     const decoded = verifyAccessToken(token);
-    
-    // Verify token type (backward compatibility - old tokens may not have type field)
-    if (decoded.type && decoded.type !== 'access') {
+
+    if (decoded.type !== 'access') {
       return res.status(401).json({ 
         message: 'Invalid token type.',
         code: 'INVALID_TOKEN_TYPE'

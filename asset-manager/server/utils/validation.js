@@ -123,10 +123,21 @@ const createAuthRateLimit = () => {
     legacyHeaders: false,
     // Skip successful requests
     skipSuccessfulRequests: true,
-    // Custom key generator to include user agent for better tracking
-    keyGenerator: (req) => {
-      return req.ip + ':' + (req.get('User-Agent') || '').substring(0, 50);
-    }
+  });
+};
+
+// Keyed by email so rotating IPs cannot brute-force a single account's OTP
+const createOtpRateLimit = (max) => {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max,
+    message: {
+      success: false,
+      message: 'Too many OTP attempts. Please try again later.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `otp:${String(req.body?.email || '').trim().toLowerCase() || req.ip}`
   });
 };
 
@@ -157,6 +168,7 @@ module.exports = {
   validateEmail,
   validateName,
   createAuthRateLimit,
+  createOtpRateLimit,
   sanitizeInput,
   detectSuspiciousInput
 }; 
