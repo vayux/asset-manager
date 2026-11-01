@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('../index');
 const { sequelize } = require('../config/database');
+const { resetDatabase } = require('./db');
 
 if (!process.env.DB_NAME.endsWith('_test')) {
   throw new Error(`Refusing to run tests against non-test database "${process.env.DB_NAME}"`);
@@ -23,7 +24,7 @@ let alice;
 let bob;
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetDatabase();
   alice = await register('alice');
   bob = await register('bob');
 });

@@ -2,6 +2,7 @@ const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const app = require('../index');
 const { sequelize } = require('../config/database');
+const { resetDatabase } = require('./db');
 const { validateJWTSecret } = require('../utils/security');
 
 if (!process.env.DB_NAME.endsWith('_test')) {
@@ -12,9 +13,9 @@ const credentials = { email: 'carol@example.com', password: 'Passw0rd!x' };
 let user;
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetDatabase();
   const res = await request(app).post('/api/auth/register').send({ ...credentials, firstName: 'Carol', lastName: 'Test' });
-  expect(res.status).toBe(201);
+  if (res.status !== 201) throw new Error(`register failed: ${res.status}`);
   user = res.body;
 });
 

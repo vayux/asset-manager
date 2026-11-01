@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const { sequelize } = require('./config/database');
+const { runMigrations } = require('./migrations');
 const { validateJWTSecret } = require('./utils/security');
 // Import models to ensure they are registered
 require('./models');
@@ -111,9 +112,8 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
     
-    // Sync database models
-    await sequelize.sync({ alter: true });
-    console.log('Database synchronized.');
+    await runMigrations();
+    console.log('Database migrations applied.');
     
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);

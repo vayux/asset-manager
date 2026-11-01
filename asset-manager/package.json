@@ -22,8 +22,5 @@
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
-  },
-  "dependencies": {
-    "html2canvas": "^1.4.1"
   }
 }

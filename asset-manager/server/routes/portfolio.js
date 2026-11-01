@@ -1,6 +1,6 @@
 const express = require('express');
-const { body, validationResult, param, query } = require('express-validator');
-const { Investment, PortfolioSnapshot, InvestmentHistory } = require('../models');
+const { body, validationResult, query } = require('express-validator');
+const { Investment, PortfolioSnapshot } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const { Op } = require('sequelize');
@@ -94,7 +94,6 @@ router.get('/analytics/monthly', validateLimit, async (req, res) => {
 router.get('/analytics/stacked', validateLimit, async (req, res) => {
   try {
     const { limit = 12 } = req.query;
-    const { sequelize } = require('../config/database');
 
     // Build target months list (last N months inclusive of current)
     const now = new Date();

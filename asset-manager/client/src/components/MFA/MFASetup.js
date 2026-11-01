@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { 
   ShieldCheckIcon, 
@@ -10,7 +9,6 @@ import {
 } from '@heroicons/react/24/outline';
 
 const MFASetup = () => {
-  const { user } = useAuth();
   const [mfaStatus, setMfaStatus] = useState(null);
   const [setupStep, setSetupStep] = useState('check'); // check, setup, verify, complete
   const [qrCode, setQrCode] = useState('');

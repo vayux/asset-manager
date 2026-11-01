@@ -98,7 +98,6 @@ router.get('/:id/projection/montecarlo', [ param('id').isUUID(), query('contribu
   const sims = parseInt(req.query.sims || '1000', 10);
   const meanReturn = 0.005; // 0.5% monthly mean
   const stdDev = 0.03; // 3% monthly std dev
-  const today = new Date();
   const monthsToTarget = monthsUntil(goal.targetDate);
 
   // Determine starting amount

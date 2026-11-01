@@ -91,7 +91,7 @@ const Investment = sequelize.define('Investment', {
     comment: 'Date of investment or the last valuation date',
   },
 }, {
-  // Remove manual indexes to let Sequelize handle them based on associations
+  indexes: [{ name: 'investments_user_id', fields: ['user_id'] }],
 });
 
 module.exports = Investment; 

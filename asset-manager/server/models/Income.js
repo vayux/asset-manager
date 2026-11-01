@@ -18,7 +18,7 @@ const Income = sequelize.define('Income', {
     allowNull: false,
   },
   amount: {
-    type: DataTypes.DECIMAL(12, 2),
+    type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
   },
   frequency: {
@@ -33,6 +33,7 @@ const Income = sequelize.define('Income', {
   },
 }, {
   tableName: 'incomes',
+  indexes: [{ name: 'incomes_user_id', fields: ['user_id'] }],
   underscored: true,
 });
 

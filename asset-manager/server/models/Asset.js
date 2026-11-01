@@ -58,6 +58,8 @@ const Asset = sequelize.define('Asset', {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
   },
+}, {
+  indexes: [{ name: 'assets_user_id', fields: ['user_id'] }],
 });
 
 module.exports = Asset; 

@@ -1,9 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { PlusIcon, XMarkIcon, ArrowUpTrayIcon, TrashIcon } from '@heroicons/react/24/outline';
-import { format } from 'date-fns';
-import { Link } from 'react-router-dom';
+import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 const categoryOptions = [
   { value: 'bank_account', label: 'Bank Account' },
@@ -276,7 +274,7 @@ const Investments = () => {
   const [editInv, setEditInv] = useState(null);
   const [monthFilter, setMonthFilter] = useState('');
 
-  const fetchInvestments = async () => {
+  const fetchInvestments = useCallback(async () => {
     try {
       setLoading(true);
       const query = monthFilter ? `?month=${monthFilter}` : '';
@@ -287,11 +285,11 @@ const Investments = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [monthFilter]);
 
   useEffect(() => {
     fetchInvestments();
-  }, [monthFilter]);
+  }, [fetchInvestments]);
 
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this investment?')) return;

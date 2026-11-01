@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('../index');
 const { sequelize } = require('../config/database');
+const { resetDatabase } = require('./db');
 const { Investment } = require('../models');
 const emailService = require('../utils/emailService');
 
@@ -24,7 +25,7 @@ const authed = async () => {
 };
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetDatabase();
 });
 
 afterAll(async () => {
@@ -147,5 +148,28 @@ describe('data integrity', () => {
       .post('/api/portfolio/snapshot').set(headers).send({ snapshotDate: '2026-10-31' })
       .then(res => res.status)));
     expect(statuses.sort()).toEqual([201, 409, 409]);
+  });
+});
+
+describe('migrations', () => {
+  it('create every column and index the models declare', async () => {
+    const queryInterface = sequelize.getQueryInterface();
+    const [indexRows] = await sequelize.query("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'");
+    const indexNames = new Set(indexRows.map(r => r.indexname));
+    for (const model of Object.values(sequelize.models)) {
+      if (model.name === 'SequelizeMeta') continue;
+      const table = await queryInterface.describeTable(model.getTableName());
+      const columns = Object.values(model.getAttributes()).map(a => a.field);
+      expect(columns.filter(c => !table[c])).toEqual([]);
+      const declared = (model.options.indexes || []).map(i => i.name).filter(Boolean);
+      expect(declared.filter(name => !indexNames.has(name))).toEqual([]);
+    }
+  });
+
+  it('stores amounts above 10 billion in budget, goals and income', async () => {
+    const headers = await authed();
+    const res = await request(app).post('/api/income').set(headers)
+      .send({ name: 'Big', amount: 25000000000, frequency: 'once', nextPayDate: '2026-11-01' });
+    expect(res.status).toBe(201);
   });
 });

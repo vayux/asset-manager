@@ -61,6 +61,8 @@ const Liability = sequelize.define('Liability', {
     type: DataTypes.BOOLEAN,
     defaultValue: true,
   },
+}, {
+  indexes: [{ name: 'liabilities_user_id', fields: ['user_id'] }],
 });
 
 module.exports = Liability; 

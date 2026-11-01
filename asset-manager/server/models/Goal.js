@@ -21,7 +21,7 @@ const Goal = sequelize.define('Goal', {
     type: DataTypes.TEXT,
   },
   targetAmount: {
-    type: DataTypes.DECIMAL(12, 2),
+    type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
     field: 'target_amount',
   },
@@ -31,13 +31,13 @@ const Goal = sequelize.define('Goal', {
     field: 'target_date',
   },
   currentAmount: {
-    type: DataTypes.DECIMAL(12, 2),
+    type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
     defaultValue: 0,
     field: 'current_amount',
   },
   monthlyContribution: {
-    type: DataTypes.DECIMAL(12, 2),
+    type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
     defaultValue: 0,
     field: 'monthly_contribution',
@@ -49,6 +49,7 @@ const Goal = sequelize.define('Goal', {
   },
 }, {
   tableName: 'goals',
+  indexes: [{ name: 'goals_user_id', fields: ['user_id'] }],
   underscored: true,
 });
 

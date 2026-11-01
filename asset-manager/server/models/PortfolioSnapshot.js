@@ -44,7 +44,7 @@ const PortfolioSnapshot = sequelize.define('PortfolioSnapshot', {
     comment: 'True if manually created, false if auto-generated',
   },
 }, {
-  indexes: [{ unique: true, fields: ['user_id', 'snapshot_date'] }],
+  indexes: [{ name: 'portfolio_snapshots_user_id_snapshot_date', unique: true, fields: ['user_id', 'snapshot_date'] }],
 });
 
 module.exports = PortfolioSnapshot; 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { PieChart, Pie, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { useSearchParams, Link } from 'react-router-dom';
@@ -8,7 +8,6 @@ import { BanknotesIcon, CreditCardIcon, ChartBarIcon } from '@heroicons/react/24
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
-import { exportToCSV } from '../../utils/exportUtils';
 
 const COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#84CC16','#F97316'];
 
@@ -29,7 +28,7 @@ const Portfolio = () => {
   const invId = searchParams.get('inv');
   const [invHistory,setInvHistory]=useState([]);
   const [invObj,setInvObj]=useState(null);
-  const [investmentFilter, setInvestmentFilter] = useState('all');
+  const [investmentFilter] = useState('all');
   const [investmentList, setInvestmentList] = useState([]);
   const [assetsTotal, setAssetsTotal] = useState(0);
   const [liabilitiesTotal, setLiabilitiesTotal] = useState(0);
@@ -142,6 +141,7 @@ const Portfolio = () => {
 
   useEffect(()=>{
     if(!invId) fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   },[monthFilter,investmentFilter,invId]);
 
   useEffect(()=>{
@@ -255,8 +255,7 @@ const Portfolio = () => {
     // ---------- Additional Data (Budget, Goals, Optimizer) ----------
     const monthStr = monthFilter;
     try {
-      const [budgetCatRes, budgetEntryRes, goalsRes, healthRes, recRes] = await Promise.all([
-        axios.get('/api/budget/categories'),
+      const [budgetEntryRes, goalsRes, healthRes, recRes] = await Promise.all([
         axios.get(`/api/budget/entries?month=${monthStr}`),
         axios.get('/api/goals'),
         axios.get(`/api/optimizer/health?month=${monthStr}`),
@@ -282,7 +281,6 @@ const Portfolio = () => {
       const goals = goalsRes.data.goals || [];
       if(goals.length){
         doc.text('Goals Overview',14,startY+10);
-        const goalCols=['name','targetAmount','currentAmount','monthlyContribution','targetDate'];
         autoTable(doc,{startY:startY+14,head:[['Name','Target','Current','Monthly','Target Date']],
           body:goals.map(g=>[g.name,formatCurrency(g.targetAmount),formatCurrency(g.currentAmount),formatCurrency(g.monthlyContribution),g.targetDate]),styles:{fontSize:8}});
         startY = doc.lastAutoTable.finalY + 10;

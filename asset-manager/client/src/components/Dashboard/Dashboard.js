@@ -27,6 +27,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthFilter]);
 
   const fetchDashboardData = async () => {
