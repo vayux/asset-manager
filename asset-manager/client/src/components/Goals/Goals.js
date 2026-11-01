@@ -42,8 +42,8 @@ const Goals = () => {
           api.get('/api/liabilities'),
         ]);
         const inv = overviewRes.data.totalValue||0;
-        const ast = (assetsRes.data.assets||[]).reduce((s,a)=>s+parseFloat(a.currentValue||0),0);
-        const liab = (liabRes.data.liabilities||[]).reduce((s,l)=>s+parseFloat(l.outstandingAmount||0),0);
+        const ast = (assetsRes.data.assets||[]).reduce((s,a)=>s+parseFloat(a.valueInr ?? a.currentValue ?? 0),0);
+        const liab = (liabRes.data.liabilities||[]).reduce((s,l)=>s+parseFloat(l.outstandingInr ?? l.outstandingAmount ?? 0),0);
         setInvestTotal(inv); setAssetTotal(ast); setLiabTotal(liab);
       }catch(e){ console.error(e); }
     };

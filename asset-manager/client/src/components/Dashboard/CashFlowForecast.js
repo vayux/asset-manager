@@ -39,7 +39,7 @@ const CashFlowForecast = () => {
         ]);
         const cashAssets = (assetsRes.data.assets||[]).filter(a=>a.category==='cash');
         const bankInv = (invRes.data.investments||[]).filter(i=>i.category==='bank_account');
-        let balance = [...cashAssets, ...bankInv].reduce((s,a)=>s+parseFloat(a.currentValue||a.currentAmount||0),0);
+        let balance = [...cashAssets, ...bankInv].reduce((s,a)=>s+parseFloat(a.valueInr ?? a.amountInr ?? a.currentValue ?? a.currentAmount ?? 0),0);
         const today = new Date();
         const windowDays=30;
         const map={};

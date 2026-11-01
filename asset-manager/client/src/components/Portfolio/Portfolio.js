@@ -93,7 +93,7 @@ const Portfolio = () => {
         const assetBreak = assetsArr.reduce((acc,a)=>{
           const cat=a.category;
           if(!acc[cat]) acc[cat] = { totalAmount:0, count:0 };
-          acc[cat].totalAmount += parseFloat(a.currentValue||0);
+          acc[cat].totalAmount += parseFloat(a.valueInr ?? a.currentValue ?? 0);
           acc[cat].count += 1;
           return acc;
         },{});
@@ -106,8 +106,8 @@ const Portfolio = () => {
         });
 
         // Totals for assets/liabilities
-        const assetsSum = assetsArr.reduce((s,a)=>s+parseFloat(a.currentValue||0),0);
-        const liabilitiesSum = liabilitiesArr.reduce((s,l)=>s+parseFloat(l.outstandingAmount||0),0);
+        const assetsSum = assetsArr.reduce((s,a)=>s+parseFloat(a.valueInr ?? a.currentValue ?? 0),0);
+        const liabilitiesSum = liabilitiesArr.reduce((s,l)=>s+parseFloat(l.outstandingInr ?? l.outstandingAmount ?? 0),0);
         setAssetsTotal(assetsSum);
         setLiabilitiesTotal(liabilitiesSum);
 

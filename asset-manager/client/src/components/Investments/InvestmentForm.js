@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { XMarkIcon } from '@heroicons/react/24/outline';
+import CurrencySelect from '../common/CurrencySelect';
 
 export const categoryOptions = [
   { value: 'bank_account', label: 'Bank Account' },
@@ -31,6 +32,7 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
   const [formData, setFormData] = useState({
     name: investment.name || '',
     category: investment.category || 'bank_account',
+    currency: investment.currency || 'INR',
     subCategory: investment.subCategory || '',
     currentAmount: investment.currentAmount || '',
     institutionName: investment.institutionName || '',
@@ -90,6 +92,7 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
         await api.put(`/api/investments/${investment.id}`, {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           subCategory: formData.subCategory.trim() || undefined,
           currentAmount: parseFloat(formData.currentAmount),
           institutionName: formData.institutionName.trim() || undefined,
@@ -100,6 +103,7 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
         await api.post('/api/investments', {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           subCategory: formData.subCategory.trim() || undefined,
           currentAmount: parseFloat(formData.currentAmount),
           institutionName: formData.institutionName.trim() || undefined,
@@ -193,6 +197,10 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label htmlFor="currency" className="form-label">Currency</label>
+            <CurrencySelect value={formData.currency} onChange={handleChange} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

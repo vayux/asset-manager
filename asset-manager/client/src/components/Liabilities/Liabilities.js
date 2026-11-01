@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { formatCurrency } from '../../utils/currency';
+import { formatWithInr } from '../../utils/currency';
+import CurrencySelect from '../common/CurrencySelect';
 
 const categoryOptions = [
   { value: 'loan', label: 'Loan' },
@@ -19,6 +20,7 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
   const [formData, setFormData] = useState({
     name: liability?.name || '',
     category: liability?.category || 'loan',
+    currency: liability?.currency || 'INR',
     outstandingAmount: liability?.outstandingAmount || '',
     interestRate: liability?.interestRate || '',
     dueDate: liability?.dueDate || '',
@@ -47,6 +49,7 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
         await api.put(`/api/liabilities/${liability.id}`, {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           outstandingAmount: parseFloat(formData.outstandingAmount),
           interestRate: formData.interestRate ? parseFloat(formData.interestRate) : undefined,
           dueDate: formData.dueDate || undefined,
@@ -57,6 +60,7 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
         await api.post('/api/liabilities', {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           outstandingAmount: parseFloat(formData.outstandingAmount),
           interestRate: formData.interestRate ? parseFloat(formData.interestRate) : undefined,
           dueDate: formData.dueDate || undefined,
@@ -123,6 +127,10 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label htmlFor="currency" className="form-label">Currency</label>
+            <CurrencySelect value={formData.currency} onChange={handleChange} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -244,7 +252,7 @@ const Liabilities = () => {
                 <tr key={item.id}>
                   <td className="px-6 py-4 whitespace-nowrap">{item.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap capitalize">{item.category.replace('_', ' ')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(item.outstandingAmount)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatWithInr(item.outstandingAmount, item.currency, item.outstandingInr)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">{item.interestRate ? `${item.interestRate}%` : '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right space-x-2">
                     <button

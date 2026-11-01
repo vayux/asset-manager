@@ -60,8 +60,8 @@ const Dashboard = () => {
       // compute totals for assets/liabilities
       const assetsArr = assetsResponse.data.assets || [];
       const liabilitiesArr = liabilitiesResponse.data.liabilities || [];
-      const assetsSum = assetsArr.reduce((sum,a)=>sum+parseFloat(a.currentValue||0),0);
-      const liabilitiesSum = liabilitiesArr.reduce((sum,l)=>sum+parseFloat(l.outstandingAmount||0),0);
+      const assetsSum = assetsArr.reduce((sum,a)=>sum+parseFloat(a.valueInr ?? a.currentValue ?? 0),0);
+      const liabilitiesSum = liabilitiesArr.reduce((sum,l)=>sum+parseFloat(l.outstandingInr ?? l.outstandingAmount ?? 0),0);
       setAssetsTotal(assetsSum);
       setLiabilitiesTotal(liabilitiesSum);
     } catch (error) {

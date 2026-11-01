@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { ArrowUpTrayIcon, PlusIcon } from '@heroicons/react/24/outline';
-import { formatCurrency } from '../../utils/currency';
+import { formatWithInr } from '../../utils/currency';
 import InvestmentForm, { categoryOptions } from './InvestmentForm';
 
 const Investments = () => {
@@ -128,7 +128,7 @@ const Investments = () => {
                     {categoryOptions.find((c) => c.value === inv.category)?.label || inv.category}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(inv.currentAmount)}
+                    {formatWithInr(inv.currentAmount, inv.currency, inv.amountInr)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {inv.institutionName || '-'}

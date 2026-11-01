@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { formatCurrency } from '../../utils/currency';
+import { formatCurrency, formatWithInr } from '../../utils/currency';
+import CurrencySelect from '../common/CurrencySelect';
 
 const categoryOptions = [
   { value: 'cash', label: 'Cash' },
@@ -21,6 +22,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
     name: asset?.name || '',
     category: asset?.category || 'cash',
+    currency: asset?.currency || 'INR',
     currentValue: asset?.originalValue ?? asset?.currentValue ?? '',
     purchaseDate: asset?.purchaseDate || '',
     depreciationRate: asset?.depreciationRate || '',
@@ -52,6 +54,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
         await api.put(`/api/assets/${asset.id}`, {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           currentValue: parseFloat(formData.currentValue),
           purchaseDate: formData.purchaseDate || undefined,
           depreciationRate: formData.depreciationRate ? parseFloat(formData.depreciationRate) : undefined,
@@ -61,6 +64,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
         await api.post('/api/assets', {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           currentValue: parseFloat(formData.currentValue),
           purchaseDate: formData.purchaseDate || undefined,
           depreciationRate: formData.depreciationRate ? parseFloat(formData.depreciationRate) : undefined,
@@ -114,6 +118,10 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label htmlFor="currency" className="form-label">Currency</label>
+            <CurrencySelect value={formData.currency} onChange={handleChange} />
           </div>
           <div>
             <label className="form-label">Current Value (INR)</label>
@@ -230,8 +238,8 @@ const Assets = () => {
                 <tr key={asset.id}>
                   <td className="px-6 py-4 whitespace-nowrap">{asset.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap capitalize">{asset.category.replace('_', ' ')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(asset.originalValue ?? asset.bookValue)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(asset.bookValue)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(asset.originalValue ?? asset.bookValue, asset.currency)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatWithInr(asset.bookValue, asset.currency, asset.valueInr)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right space-x-2">
                     <button
                       onClick={() => { setEditAsset(asset); setShowForm(true); }}
