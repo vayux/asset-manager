@@ -1,4 +1,5 @@
 const express = require('express');
+const { parseCsv } = require('../utils/csv');
 const { body, validationResult, param, query } = require('express-validator');
 const { Investment, InvestmentHistory } = require('../models');
 const authMiddleware = require('../middleware/auth');
@@ -380,6 +381,61 @@ router.post('/bulk', [
     })), { validate: true, transaction }));
     res.status(201).json({created});
   }catch(err){ console.error('bulk insert failed:', err.message); res.status(500).json({message:'bulk insert failed; no investments were saved'}); }
+});
+
+// Import investments from a CSV file (header row required; name and currentAmount columns are mandatory).
+// The whole file is rejected if any row is invalid.
+const MAX_IMPORT_ROWS = 1000;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+router.post('/import', express.text({ type: ['text/csv', 'text/plain'], limit: '1mb' }), async (req, res) => {
+  if (typeof req.body !== 'string' || !req.body.trim()) {
+    return res.status(400).json({ message: 'Send the CSV file as text/csv' });
+  }
+  const [header, ...lines] = parseCsv(req.body);
+  const columns = header.map(h => h.trim());
+  if (!columns.includes('name') || !columns.includes('currentAmount')) {
+    return res.status(400).json({ message: 'CSV needs at least name and currentAmount columns' });
+  }
+  if (!lines.length) return res.status(400).json({ message: 'CSV has no data rows' });
+  if (lines.length > MAX_IMPORT_ROWS) {
+    return res.status(400).json({ message: `CSV can have at most ${MAX_IMPORT_ROWS} rows` });
+  }
+
+  const errors = [];
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const amount = (raw, rowNo, field, required) => {
+    if (raw === '' && !required) return undefined;
+    const n = Number(raw.replace(/[₹,\s]/g, ''));
+    if (raw === '' || !Number.isFinite(n) || n < 0) errors.push({ row: rowNo, message: `${field} must be a positive number` });
+    return n;
+  };
+  const records = lines.map((cells, idx) => {
+    const rowNo = idx + 2;
+    const raw = Object.fromEntries(columns.map((c, i) => [c, (cells[i] || '').trim()]));
+    if (!raw.name) errors.push({ row: rowNo, message: 'name is required' });
+    const category = raw.category || 'other';
+    if (!INVESTMENT_CATEGORIES.includes(category)) errors.push({ row: rowNo, message: `unknown category "${category}"` });
+    if (raw.investmentDate && (!DATE_RE.test(raw.investmentDate) || Number.isNaN(Date.parse(raw.investmentDate)))) {
+      errors.push({ row: rowNo, message: 'investmentDate must be YYYY-MM-DD' });
+    }
+    const record = {
+      userId: req.user.id,
+      name: raw.name.slice(0, 255),
+      category,
+      currentAmount: amount(raw.currentAmount || '', rowNo, 'currentAmount', true),
+      investmentDate: raw.investmentDate || today,
+    };
+    const initialAmount = amount(raw.initialAmount || '', rowNo, 'initialAmount', false);
+    if (initialAmount !== undefined) record.initialAmount = initialAmount;
+    if (raw.institutionName) record.institutionName = raw.institutionName.slice(0, 255);
+    if (raw.subCategory) record.subCategory = raw.subCategory.slice(0, 255);
+    return record;
+  });
+  if (errors.length) {
+    return res.status(400).json({ message: 'CSV has invalid rows; nothing was imported', errors: errors.slice(0, 50) });
+  }
+  const created = await Investment.sequelize.transaction(transaction => Investment.bulkCreate(records, { validate: true, transaction }));
+  res.status(201).json({ imported: created.length });
 });
 
 // Export router

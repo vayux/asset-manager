@@ -10,6 +10,7 @@ require('dotenv').config();
 
 const { sequelize } = require('./config/database');
 const { runMigrations } = require('./migrations');
+const { startSnapshotScheduler } = require('./utils/snapshots');
 const { validateSecrets } = require('./utils/security');
 const logger = require('./utils/logger');
 // Import models to ensure they are registered
@@ -127,6 +128,7 @@ const startServer = async () => {
     await runMigrations();
     logger.info('Database migrations applied');
     
+    startSnapshotScheduler();
     app.listen(PORT, () => {
       logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'Server started');
     });

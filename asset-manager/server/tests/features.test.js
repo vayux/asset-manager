@@ -4,6 +4,8 @@ const { sequelize } = require('../config/database');
 const { resetDatabase } = require('./db');
 const { Investment, InvestmentHistory } = require('../models');
 const emailService = require('../utils/emailService');
+const { runDailySnapshots } = require('../utils/snapshots');
+const { cagr, xirr } = require('../utils/returns');
 
 if (!process.env.DB_NAME.endsWith('_test')) {
   throw new Error(`Refusing to run tests against non-test database "${process.env.DB_NAME}"`);
@@ -192,5 +194,75 @@ describe('portfolio history', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.map(d => d.month)).toEqual([month(-4), month(-3), month(-2), month(-1), month(0)]);
     expect(res.body.data.map(d => d.total)).toEqual([0, 1000, 1500, 1500, 1800]);
+  });
+});
+
+describe('net worth snapshots', () => {
+  it('takes one automatic snapshot per user per day, including assets and liabilities', async () => {
+    const headers = await authed();
+    await request(app).post('/api/investments').set(headers).send({ name: 'FD', category: 'fixed_deposit', initialAmount: 100000, currentAmount: 100000 });
+    expect((await request(app).post('/api/assets').set(headers).send({ name: 'Car', category: 'vehicle', currentValue: 50000 })).status).toBe(201);
+    expect((await request(app).post('/api/liabilities').set(headers).send({ name: 'Loan', category: 'loan', outstandingAmount: 30000 })).status).toBe(201);
+
+    await runDailySnapshots('2026-01-15');
+    await runDailySnapshots('2026-01-15');
+    const res = await request(app).get('/api/portfolio/net-worth').set(headers);
+    expect(res.body.data).toEqual([{ date: '2026-01-15', investments: 100000, assets: 50000, liabilities: 30000, netWorth: 120000, isManual: false }]);
+
+    const manual = await request(app).post('/api/portfolio/snapshot').set(headers).send({ snapshotDate: '2026-01-16' });
+    expect(manual.status).toBe(201);
+    expect((await request(app).post('/api/portfolio/snapshot').set(headers).send({ snapshotDate: '2026-01-16' })).status).toBe(409);
+    const after = await request(app).get('/api/portfolio/net-worth').set(headers);
+    expect(after.body.data.map(d => [d.date, d.netWorth, d.isManual])).toEqual([['2026-01-15', 120000, false], ['2026-01-16', 120000, true]]);
+  });
+});
+
+describe('returns', () => {
+  it('computes CAGR and XIRR', () => {
+    expect(cagr(1000, 1210, 2)).toBeCloseTo(0.1, 6);
+    expect(xirr([{ amount: -1000, date: '2021-01-01' }, { amount: 1100, date: '2022-01-01' }])).toBeCloseTo(0.1, 4);
+    expect(xirr([{ amount: -1000, date: '2021-01-01' }, { amount: -1000, date: '2022-01-01' }, { amount: 2310, date: '2023-01-01' }])).toBeCloseTo(0.1, 4);
+    expect(xirr([{ amount: 1000, date: '2021-01-01' }])).toBeNull();
+  });
+
+  it('reports CAGR per holding and portfolio XIRR', async () => {
+    const headers = await authed();
+    const today = new Date().toISOString().slice(0, 10);
+    const twoYearsAgo = new Date(Date.parse(today) - 2 * 365 * 86400000).toISOString().slice(0, 10);
+    await request(app).post('/api/investments').set(headers).send({ name: 'Fund', category: 'mutual_funds', initialAmount: 1000, currentAmount: 1210, investmentDate: twoYearsAgo });
+    const res = await request(app).get('/api/portfolio/returns').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.investments[0].cagr).toBeCloseTo(0.1, 3);
+    expect(res.body.portfolio.xirr).toBeCloseTo(0.1, 3);
+    expect(res.body.portfolio.absoluteReturn).toBeCloseTo(0.21, 4);
+  });
+});
+
+describe('CSV import', () => {
+  const importCsv = (headers, body) => request(app).post('/api/investments/import').set(headers).set('Content-Type', 'text/csv').send(body);
+
+  it('imports rows with quoted fields and CRLF line endings', async () => {
+    const headers = await authed();
+    const res = await importCsv(headers, 'name,category,currentAmount,initialAmount,investmentDate\r\n"HDFC, Flexi Cap",mutual_funds,"1,500.50",1000,2024-04-01\r\nGold coin,gold,7000,,\r\n');
+    expect(res.status).toBe(201);
+    expect(res.body.imported).toBe(2);
+    const list = await request(app).get('/api/investments').set(headers);
+    const byName = Object.fromEntries(list.body.investments.map(i => [i.name, i]));
+    expect(Object.keys(byName).sort()).toEqual(['Gold coin', 'HDFC, Flexi Cap']);
+    expect(parseFloat(byName['HDFC, Flexi Cap'].currentAmount)).toBe(1500.5);
+  });
+
+  it('rejects the whole file when any row is invalid', async () => {
+    const headers = await authed();
+    const res = await importCsv(headers, 'name,category,currentAmount\nGood,stocks,100\n,stocks,abc\nBad,yachts,5\n');
+    expect(res.status).toBe(400);
+    expect(res.body.errors.map(e => e.row)).toEqual([3, 3, 4]);
+    const list = await request(app).get('/api/investments').set(headers);
+    expect(list.body.investments).toHaveLength(0);
+  });
+
+  it('requires the mandatory columns', async () => {
+    const headers = await authed();
+    expect((await importCsv(headers, 'title,value\nx,1\n')).status).toBe(400);
   });
 });

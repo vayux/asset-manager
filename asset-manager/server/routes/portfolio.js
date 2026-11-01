@@ -1,9 +1,11 @@
 const express = require('express');
-const { body, validationResult, query } = require('express-validator');
+const { body, query } = require('express-validator');
 const { Investment, InvestmentHistory, PortfolioSnapshot } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const { Op } = require('sequelize');
+const { createSnapshot } = require('../utils/snapshots');
+const { yearsBetween, cagr, xirr } = require('../utils/returns');
 
 const router = express.Router();
 
@@ -150,82 +152,82 @@ router.get('/analytics/stacked', validateLimit, async (req, res) => {
   }
 });
 
+// Net worth over time from daily (automatic) and manual snapshots
+router.get('/net-worth', validateLimit, async (req, res) => {
+  const rows = await PortfolioSnapshot.findAll({
+    where: { userId: req.user.id },
+    order: [['snapshotDate', 'DESC']],
+    limit: req.query.limit || 90,
+    attributes: ['snapshotDate', 'totalValue', 'totalAssets', 'totalLiabilities', 'netWorth', 'isManual'],
+    raw: true,
+  });
+  res.json({
+    data: rows.reverse().map(r => ({
+      date: r.snapshotDate,
+      investments: parseFloat(r.totalValue),
+      assets: parseFloat(r.totalAssets),
+      liabilities: parseFloat(r.totalLiabilities),
+      netWorth: parseFloat(r.netWorth),
+      isManual: r.isManual,
+    })),
+  });
+});
+
+// CAGR per holding and XIRR for the whole portfolio, treating each holding's
+// initial amount as money invested on its investment date and today's value as the end value
+router.get('/returns', async (req, res) => {
+  const investments = await Investment.findAll({ where: { userId: req.user.id, isActive: true }, raw: true });
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const round = (n) => (n === null ? null : Math.round(n * 10000) / 10000);
+  const flows = [];
+  let invested = 0;
+  let current = 0;
+  const holdings = investments.map((inv) => {
+    const start = String(inv.investmentDate || new Date(inv.createdAt).toISOString()).slice(0, 10);
+    const principal = parseFloat(inv.initialAmount ?? inv.currentAmount);
+    const value = parseFloat(inv.currentAmount);
+    const years = yearsBetween(start, todayStr);
+    invested += principal;
+    current += value;
+    flows.push({ amount: -principal, date: start });
+    return {
+      id: inv.id,
+      name: inv.name,
+      category: inv.category,
+      invested: principal,
+      current: value,
+      years: round(years),
+      // Annualising holdings younger than a month gives meaningless numbers
+      cagr: years >= 1 / 12 ? round(cagr(principal, value, years)) : null,
+    };
+  });
+  flows.push({ amount: current, date: todayStr });
+  res.json({
+    investments: holdings,
+    portfolio: {
+      invested: Math.round(invested * 100) / 100,
+      current: Math.round(current * 100) / 100,
+      absoluteReturn: invested > 0 ? round(current / invested - 1) : null,
+      xirr: investments.length ? round(xirr(flows)) : null,
+    },
+  });
+});
+
 // Create portfolio snapshot
 router.post('/snapshot', [
   body('snapshotDate').isISO8601().withMessage('Valid snapshot date is required'),
-  body('notes').optional().trim(),
+  body('notes').optional().trim().isLength({ max: 1000 }),
+  handleValidation,
 ], async (req, res) => {
+  const { snapshotDate, notes } = req.body;
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation errors', 
-        errors: errors.array() 
-      });
-    }
-
-    const { snapshotDate, notes } = req.body;
-
-    // Check if snapshot already exists for this date
-    const existingSnapshot = await PortfolioSnapshot.findOne({
-      where: {
-        userId: req.user.id,
-        snapshotDate,
-      },
-    });
-
-    if (existingSnapshot) {
-      return res.status(409).json({ message: 'Snapshot already exists for this date' });
-    }
-
-    // Get current investments
-    const investments = await Investment.findAll({
-      where: {
-        userId: req.user.id,
-        isActive: true,
-      },
-    });
-
-    const totalValue = investments.reduce((sum, investment) => {
-      return sum + parseFloat(investment.currentAmount);
-    }, 0);
-
-    const categoryBreakdown = investments.reduce((acc, investment) => {
-      const category = investment.category;
-      if (!acc[category]) {
-        acc[category] = 0;
-      }
-      acc[category] += parseFloat(investment.currentAmount);
-      return acc;
-    }, {});
-
-    const snapshot = await PortfolioSnapshot.create({
-      userId: req.user.id,
-      snapshotDate,
-      totalValue,
-      categoryBreakdown,
-      investments: investments.map(inv => ({
-        id: inv.id,
-        name: inv.name,
-        category: inv.category,
-        subCategory: inv.subCategory,
-        amount: inv.currentAmount,
-        institutionName: inv.institutionName,
-      })),
-      notes,
-      isManual: true,
-    });
-
-    res.status(201).json({
-      message: 'Portfolio snapshot created successfully',
-      snapshot,
-    });
+    const snapshot = await createSnapshot(req.user.id, String(snapshotDate).slice(0, 10), { isManual: true, notes });
+    res.status(201).json({ message: 'Portfolio snapshot created successfully', snapshot });
   } catch (error) {
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'Snapshot already exists for this date' });
     }
-    console.error('Create snapshot error:', error);
-    res.status(500).json({ message: 'Failed to create portfolio snapshot' });
+    throw error;
   }
 });
 

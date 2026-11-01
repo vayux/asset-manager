@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import axios from 'axios';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { PieChart, Pie, Cell } from 'recharts';
@@ -30,6 +31,37 @@ const Portfolio = () => {
   const [investmentsTotal,setInvestmentsTotal] = useState(0);
   const [assetsList, setAssetsList] = useState([]);
   const [liabilitiesList, setLiabilitiesList] = useState([]);
+  const [netWorthSeries, setNetWorthSeries] = useState([]);
+  const [returns, setReturns] = useState(null);
+
+  const loadNetWorth = useCallback(async () => {
+    try {
+      const [series, ret] = await Promise.all([
+        axios.get('/api/portfolio/net-worth?limit=90'),
+        axios.get('/api/portfolio/returns'),
+      ]);
+      setNetWorthSeries(series.data.data || []);
+      setReturns(ret.data);
+    } catch (error) {
+      // Charts stay empty if analytics are unavailable
+    }
+  }, []);
+
+  useEffect(() => {
+    loadNetWorth();
+  }, [loadNetWorth]);
+
+  const takeSnapshot = async () => {
+    try {
+      await axios.post('/api/portfolio/snapshot', { snapshotDate: format(new Date(), 'yyyy-MM-dd') });
+      toast.success('Snapshot saved');
+      loadNetWorth();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not save snapshot');
+    }
+  };
+
+  const pct = (value) => (value === null || value === undefined ? '—' : `${(value * 100).toFixed(1)}%`);
 
   const fetchAll = async () => {
     try {
@@ -381,8 +413,50 @@ const Portfolio = () => {
             <input type="month" value={monthFilter} onChange={(e)=>setMonthFilter(e.target.value)} className="form-input w-40"/>
             </div>
             <div className="space-x-2">
+              <button onClick={takeSnapshot} className="btn-secondary text-sm">Snapshot</button>
               <button onClick={handleExportCSV} className="btn-secondary text-sm">CSV</button>
               <button onClick={handleExportPDF} className="btn-secondary text-sm">PDF</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div className="card lg:col-span-2">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Net worth over time</h3>
+              {netWorthSeries.length ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={netWorthSeries}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis tickFormatter={val => formatCurrency(val)} width={90} />
+                      <Tooltip formatter={val => formatCurrency(val)} />
+                      <Line type="monotone" dataKey="netWorth" name="Net worth" stroke="#3B82F6" dot={false} />
+                      <Line type="monotone" dataKey="investments" name="Investments" stroke="#10B981" dot={false} />
+                      <Line type="monotone" dataKey="liabilities" name="Liabilities" stroke="#EF4444" dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Snapshots are taken automatically once a day; the chart fills in as they accumulate.</p>
+              )}
+            </div>
+            <div className="card">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Returns</h3>
+              <dl className="space-y-2 text-sm">
+                <div className="flex justify-between"><dt className="text-gray-500">Invested</dt><dd>{formatCurrency(returns?.portfolio.invested)}</dd></div>
+                <div className="flex justify-between"><dt className="text-gray-500">Current value</dt><dd>{formatCurrency(returns?.portfolio.current)}</dd></div>
+                <div className="flex justify-between"><dt className="text-gray-500">Absolute return</dt><dd>{pct(returns?.portfolio.absoluteReturn)}</dd></div>
+                <div className="flex justify-between"><dt className="text-gray-500">XIRR (annualised)</dt><dd className="font-semibold">{pct(returns?.portfolio.xirr)}</dd></div>
+              </dl>
+              {returns?.investments?.length > 0 && (
+                <table className="w-full mt-4 text-xs">
+                  <thead><tr className="text-gray-500 text-left"><th>Holding</th><th className="text-right">CAGR</th></tr></thead>
+                  <tbody>
+                    {returns.investments.slice(0, 8).map(inv => (
+                      <tr key={inv.id}><td className="truncate">{inv.name}</td><td className="text-right">{pct(inv.cagr)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
           <div className="card mb-6">

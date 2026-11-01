@@ -24,6 +24,21 @@ const PortfolioSnapshot = sequelize.define('PortfolioSnapshot', {
     allowNull: false,
     defaultValue: 0,
   },
+  totalAssets: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
+  totalLiabilities: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
+  netWorth: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
   categoryBreakdown: {
     type: DataTypes.JSONB,
     allowNull: true,
