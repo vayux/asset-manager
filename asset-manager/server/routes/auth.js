@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, param, validationResult } = require('express-validator');
 const { User } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { 
@@ -12,14 +12,27 @@ const {
   detectSuspiciousInput
 } = require('../utils/validation');
 const { 
-  generateTokens, 
+  generateAccessToken,
   generateMfaPendingToken,
   verifyMfaPendingToken,
-  verifyRefreshToken,
   securityHeaders
 } = require('../utils/security');
+const {
+  COOKIE_NAME,
+  SessionError,
+  createSession,
+  rotateSession,
+  sessionIdFromToken,
+  revokeSession,
+  revokeUserSessions,
+  listSessions,
+  setRefreshCookie,
+  clearRefreshCookie,
+} = require('../utils/sessions');
+const { issueUserToken, consumeUserToken } = require('../utils/userTokens');
+const logger = require('../utils/logger');
 const mfaUtils = require('../utils/mfa');
-const { sendSecurityAlert } = require('../utils/emailService');
+const { sendSecurityAlert, sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emailService');
 
 const router = express.Router();
 
@@ -32,6 +45,15 @@ router.use('/login', authRateLimit);
 router.post('/login', createLoginEmailRateLimit());
 router.use('/register', authRateLimit);
 router.use('/refresh', createRateLimit({ max: 60, message: 'Too many token refresh attempts. Please try again later.' }));
+router.use(['/forgot-password', '/reset-password', '/verify-email', '/resend-verification'], authRateLimit);
+
+// Cookie-authenticated endpoints need a header a cross-site form cannot send (CSRF defence on top of SameSite)
+const requireXhr = (req, res, next) => {
+  if (req.get('X-Requested-With') !== 'XMLHttpRequest') {
+    return res.status(403).json({ message: 'Missing X-Requested-With header', code: 'CSRF_CHECK_FAILED' });
+  }
+  next();
+};
 
 const MAX_EMAIL_OTP_ATTEMPTS = 5;
 
@@ -46,21 +68,28 @@ const pendingUserKey = (req) => {
 const mfaVerifyLimit = createRateLimit({ max: 10, keyGenerator: pendingUserKey, skipSuccessfulRequests: true, message: 'Too many verification attempts. Please try again later.' });
 const emailOtpSendLimit = createRateLimit({ max: 3, keyGenerator: pendingUserKey, message: 'Too many codes requested. Please try again later.' });
 
-const issueSession = async (user, req) => {
-  const tokens = generateTokens(user.id);
-  console.log(`User logged in: ${user.id}`);
+const issueSession = async (user, req, res) => {
+  const { session, refreshToken } = await createSession(user.id, req);
+  setRefreshCookie(res, refreshToken);
+  logger.info({ userId: user.id, sessionId: session.id }, 'User logged in');
   try {
     await sendSecurityAlert(user, 'Successful Login', req.ip);
   } catch (emailError) {
-    console.error('Failed to send login notification:', emailError.message);
+    logger.warn({ err: emailError }, 'Failed to send login notification');
   }
   return {
     success: true,
     message: 'Login successful',
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
+    accessToken: generateAccessToken(user.id, session.id),
     user: user.toJSON(),
   };
+};
+
+const sendVerification = async (user) => {
+  const token = await issueUserToken(user.id, 'email_verification');
+  const result = await sendVerificationEmail(user, token);
+  if (!result.success) logger.warn({ userId: user.id }, 'Verification email not sent');
+  return result.success;
 };
 
 const loadPendingUser = async (token) => {
@@ -157,20 +186,19 @@ router.post('/register', [
       lastName: lastName.trim(),
     });
 
-    const tokens = generateTokens(user.id);
-    const responseData = {
+    const { session, refreshToken } = await createSession(user.id, req);
+    setRefreshCookie(res, refreshToken);
+    const verificationEmailSent = await sendVerification(user);
+    logger.info({ userId: user.id }, 'New user registered');
+
+    res.status(201).json({
       message: 'Account created successfully',
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
+      accessToken: generateAccessToken(user.id, session.id),
       user: user.toJSON(),
-    };
-
-    // Log successful registration (without sensitive data)
-    console.log(`New user registered: ${user.id} (${email})`);
-
-    res.status(201).json(responseData);
+      verificationEmailSent,
+    });
   } catch (error) {
-    console.error('Registration error:', error);
+    logger.error({ err: error }, 'Registration error');
     
     // Don't expose internal errors in production
     if (process.env.NODE_ENV === 'production') {
@@ -222,7 +250,7 @@ router.post('/login', [
     // Generic error message to prevent user enumeration
     if (!user || !user.isActive) {
       // Log the attempt for security monitoring
-      console.warn(`Login attempt with invalid email: ${email} from IP: ${req.ip}`);
+      logger.warn({ ip: req.ip }, 'Login attempt for unknown email');
       
       return res.status(401).json({ 
         message: 'Invalid email or password',
@@ -234,7 +262,7 @@ router.post('/login', [
     const isValidPassword = await user.validatePassword(password);
     if (!isValidPassword) {
       // Log failed password attempt
-      console.warn(`Failed password attempt for user: ${user.id} from IP: ${req.ip}`);
+      logger.warn({ userId: user.id, ip: req.ip }, 'Failed password attempt');
       
       return res.status(401).json({ 
         message: 'Invalid email or password',
@@ -253,9 +281,9 @@ router.post('/login', [
       });
     }
 
-    res.json(await issueSession(user, req));
+    res.json(await issueSession(user, req, res));
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error({ err: error }, 'Login error');
     res.status(500).json({ message: 'Login failed. Please try again.', code: 'LOGIN_ERROR' });
   }
 });
@@ -279,7 +307,7 @@ router.post('/login/mfa', mfaVerifyLimit, [
 
   let valid = false;
   if (method === 'totp' && user.mfaSecret) {
-    valid = mfaUtils.verifyTOTP(code, user.mfaSecret);
+    valid = await mfaUtils.consumeTOTP(user, code);
   } else if (method === 'backup') {
     const result = mfaUtils.verifyBackupCode(code, user.backupCodes);
     if (result.valid) {
@@ -299,11 +327,11 @@ router.post('/login/mfa', mfaVerifyLimit, [
   }
 
   if (!valid) {
-    console.warn(`Failed MFA attempt (${method}) for user: ${user.id}`);
+    logger.warn({ userId: user.id, method }, 'Failed MFA attempt');
     return res.status(401).json({ message: 'Invalid verification code', code: 'INVALID_MFA' });
   }
 
-  res.json(await issueSession(user, req));
+  res.json(await issueSession(user, req, res));
 });
 
 // Email a one-time code for the pending MFA login
@@ -331,68 +359,117 @@ router.post('/login/email-otp', emailOtpSendLimit, [
   res.json({ success: true, message: 'Verification code sent to your email' });
 });
 
-// Refresh token route
-router.post('/refresh', async (req, res) => {
+// Exchange the refresh cookie for a new access token; the refresh token rotates on every use
+router.post('/refresh', requireXhr, async (req, res) => {
+  const presented = req.cookies?.[COOKIE_NAME];
+  if (!presented) {
+    return res.status(401).json({ message: 'Not signed in', code: 'NO_REFRESH_TOKEN' });
+  }
+
+  let rotated;
   try {
-    const { refreshToken } = req.body;
-
-    if (!refreshToken) {
-      return res.status(401).json({ 
-        message: 'Refresh token is required',
-        code: 'NO_REFRESH_TOKEN'
-      });
-    }
-
-    const decoded = verifyRefreshToken(refreshToken);
-    
-    // Verify token type
-    if (decoded.type !== 'refresh') {
-      return res.status(401).json({ 
-        message: 'Invalid token type',
-        code: 'INVALID_TOKEN_TYPE'
-      });
-    }
-
-    // Verify user still exists and is active
-    const user = await User.findByPk(decoded.userId);
-    if (!user || !user.isActive) {
-      return res.status(401).json({ 
-        message: 'User not found or inactive',
-        code: 'USER_NOT_FOUND'
-      });
-    }
-
-    // Generate new tokens
-    const tokens = generateTokens(user.id);
-
-    res.json({
-      message: 'Tokens refreshed successfully',
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user: user.toJSON(),
-    });
+    rotated = await rotateSession(presented);
   } catch (error) {
-    console.error('Token refresh error:', error);
-    
-    if (error.message.includes('expired')) {
-      return res.status(401).json({ 
-        message: 'Refresh token expired. Please login again.',
-        code: 'REFRESH_TOKEN_EXPIRED'
-      });
-    }
-    
-    if (error.message.includes('Invalid')) {
-      return res.status(401).json({ 
-        message: 'Invalid refresh token',
-        code: 'INVALID_REFRESH_TOKEN'
-      });
-    }
-    
-    res.status(500).json({ 
-      message: 'Token refresh failed',
-      code: 'REFRESH_ERROR'
+    if (!(error instanceof SessionError)) throw error;
+    if (error.code !== 'REFRESH_RACE') clearRefreshCookie(res);
+    if (error.code === 'REFRESH_TOKEN_REUSED') logger.warn({ sessionId: sessionIdFromToken(presented) }, 'Refresh token reuse; session revoked');
+    return res.status(error.status).json({ message: error.message, code: error.code });
+  }
+
+  const user = await User.findByPk(rotated.session.userId);
+  if (!user || !user.isActive) {
+    await revokeSession(rotated.session.id);
+    clearRefreshCookie(res);
+    return res.status(401).json({ message: 'User not found or inactive', code: 'USER_NOT_FOUND' });
+  }
+
+  setRefreshCookie(res, rotated.refreshToken);
+  res.json({
+    message: 'Tokens refreshed successfully',
+    accessToken: generateAccessToken(user.id, rotated.session.id),
+    user: user.toJSON(),
+  });
+});
+
+// End this device's session
+router.post('/logout', requireXhr, async (req, res) => {
+  const sessionId = sessionIdFromToken(req.cookies?.[COOKIE_NAME]);
+  if (sessionId) await revokeSession(sessionId);
+  clearRefreshCookie(res);
+  res.json({ success: true, message: 'Logged out' });
+});
+
+// Sign out every other device
+router.post('/logout-all', authMiddleware, async (req, res) => {
+  const [count] = await revokeUserSessions(req.user.id, { except: req.sessionId });
+  res.json({ success: true, revoked: count });
+});
+
+router.get('/sessions', authMiddleware, async (req, res) => {
+  const sessions = await listSessions(req.user.id);
+  res.json({ sessions: sessions.map((s) => ({ ...s.toJSON(), current: s.id === req.sessionId })) });
+});
+
+router.delete('/sessions/:id', authMiddleware, [param('id').isUUID()], async (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ message: 'Invalid session id' });
+  const [count] = await revokeSession(req.params.id, req.user.id);
+  if (!count) return res.status(404).json({ message: 'Session not found' });
+  res.json({ success: true });
+});
+
+router.post('/verify-email', [body('token').isString().notEmpty()], async (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ message: 'Verification token is required' });
+  const userId = await consumeUserToken(req.body.token, 'email_verification');
+  if (!userId) return res.status(400).json({ message: 'This link is invalid or has expired', code: 'INVALID_TOKEN' });
+  await User.update({ emailVerifiedAt: new Date() }, { where: { id: userId } });
+  res.json({ success: true, message: 'Email confirmed' });
+});
+
+router.post('/resend-verification', authMiddleware, async (req, res) => {
+  if (req.user.emailVerifiedAt) return res.json({ success: true, message: 'Email already confirmed' });
+  if (!mfaUtils.isEmailConfigured()) return res.status(503).json({ message: 'Email service not configured' });
+  await sendVerification(req.user);
+  res.json({ success: true, message: 'Verification email sent' });
+});
+
+// Always answers the same way so the endpoint cannot be used to discover accounts
+router.post('/forgot-password', [body('email').isEmail().normalizeEmail()], async (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ message: 'Valid email is required' });
+  const user = await User.findOne({ where: { email: req.body.email } });
+  if (user && user.isActive) {
+    const token = await issueUserToken(user.id, 'password_reset');
+    const result = await sendPasswordResetEmail(user, token);
+    if (!result.success) logger.warn({ userId: user.id }, 'Password reset email not sent');
+  }
+  res.json({ success: true, message: 'If an account exists for that email, a reset link has been sent.' });
+});
+
+router.post('/reset-password', [
+  body('token').isString().notEmpty(),
+  body('password').isString().notEmpty(),
+], async (req, res) => {
+  if (!validationResult(req).isEmpty()) return res.status(400).json({ message: 'Token and new password are required' });
+  const passwordValidation = validatePasswordStrength(req.body.password);
+  if (!passwordValidation.isValid) {
+    return res.status(400).json({
+      message: 'Password does not meet security requirements',
+      errors: passwordValidation.errors.map(err => ({ field: 'password', message: err }))
     });
   }
+  const userId = await consumeUserToken(req.body.token, 'password_reset');
+  const user = userId && await User.findByPk(userId);
+  if (!user) return res.status(400).json({ message: 'This link is invalid or has expired', code: 'INVALID_TOKEN' });
+
+  // A reset link proves control of the inbox, so it also confirms the address
+  await user.update({ password: req.body.password, emailVerifiedAt: user.emailVerifiedAt || new Date() });
+  await revokeUserSessions(user.id);
+  clearRefreshCookie(res);
+  try {
+    await sendSecurityAlert(user, 'Password Reset', req.ip);
+  } catch (emailError) {
+    logger.warn({ err: emailError }, 'Failed to send password reset notification');
+  }
+  res.json({ success: true, message: 'Password updated. Please sign in.' });
 });
 
 // Get current user profile
@@ -402,7 +479,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
       user: req.user.toJSON(),
     });
   } catch (error) {
-    console.error('Profile fetch error:', error);
+    logger.error({ err: error }, 'Profile fetch error');
     res.status(500).json({ message: 'Failed to fetch profile' });
   }
 });
@@ -455,7 +532,7 @@ router.put('/profile', authMiddleware, [
       user: req.user.toJSON(),
     });
   } catch (error) {
-    console.error('Profile update error:', error);
+    logger.error({ err: error }, 'Profile update error');
     res.status(500).json({ message: 'Failed to update profile' });
   }
 });
@@ -506,11 +583,10 @@ router.post('/change-password', authMiddleware, [
       });
     }
 
-    // Update password
     await req.user.update({ password: newPassword });
-
-    // Log password change for security
-    console.log(`Password changed for user: ${req.user.id} from IP: ${req.ip}`);
+    // Keep this device signed in, end every other session
+    await revokeUserSessions(req.user.id, { except: req.sessionId });
+    logger.info({ userId: req.user.id }, 'Password changed');
 
     // Send security alert email
     try {
@@ -520,7 +596,7 @@ router.post('/change-password', authMiddleware, [
         req.ip || req.connection.remoteAddress
       );
     } catch (emailError) {
-      console.error('Failed to send password change notification:', emailError);
+      logger.error({ err: emailError }, 'Failed to send password change notification');
       // Don't fail the password change if email fails
     }
 
@@ -529,7 +605,7 @@ router.post('/change-password', authMiddleware, [
       message: 'Password changed successfully'
     });
   } catch (error) {
-    console.error('Change password error:', error);
+    logger.error({ err: error }, 'Change password error');
     res.status(500).json({ 
       message: 'Failed to change password',
       code: 'CHANGE_PASSWORD_ERROR'

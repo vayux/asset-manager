@@ -2,13 +2,16 @@ const express = require('express');
 require('express-async-errors');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
+const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
+const pinoHttp = require('pino-http');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const { sequelize } = require('./config/database');
 const { runMigrations } = require('./migrations');
-const { validateJWTSecret } = require('./utils/security');
+const { validateSecrets } = require('./utils/security');
+const logger = require('./utils/logger');
 // Import models to ensure they are registered
 require('./models');
 const authRoutes = require('./routes/auth');
@@ -30,6 +33,18 @@ if (process.env.TRUST_PROXY) {
   app.set('trust proxy', Number.isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY));
 }
 const PORT = process.env.PORT || 5001;
+
+// Request logging with an id per request (honours a sane incoming X-Request-Id)
+const REQUEST_ID = /^[\w-]{1,64}$/;
+app.use(pinoHttp({
+  logger,
+  genReqId: (req, res) => {
+    const incoming = req.headers['x-request-id'];
+    const id = typeof incoming === 'string' && REQUEST_ID.test(incoming) ? incoming : crypto.randomUUID();
+    res.setHeader('X-Request-Id', id);
+    return id;
+  },
+}));
 
 // Security middleware
 app.use(helmet({
@@ -55,22 +70,19 @@ const generalLimiter = rateLimit({
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-// Logging
-if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-}
-
 // CORS configuration
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Request-Id'],
+  exposedHeaders: ['X-Request-Id'],
 }));
 
 // Body parsing with size limits
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -98,7 +110,7 @@ app.use('*', (req, res) => {
 // Error handling middleware (async route errors reach here via express-async-errors)
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
-  if (status >= 500) console.error(err.stack);
+  if (status >= 500) (req.log || logger).error({ err }, 'Unhandled request error');
   res.status(status).json({ 
     message: status >= 500 ? 'Something went wrong!' : err.message, 
     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error' 
@@ -108,19 +120,18 @@ app.use((err, req, res, next) => {
 // Database connection and server start
 const startServer = async () => {
   try {
-    validateJWTSecret();
+    validateSecrets();
     await sequelize.authenticate();
-    console.log('Database connection established successfully.');
+    logger.info('Database connection established');
     
     await runMigrations();
-    console.log('Database migrations applied.');
+    logger.info('Database migrations applied');
     
     app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info({ port: PORT, env: process.env.NODE_ENV || 'development' }, 'Server started');
     });
   } catch (error) {
-    console.error('Unable to start server:', error);
+    logger.fatal({ err: error }, 'Unable to start server');
     process.exit(1);
   }
 };

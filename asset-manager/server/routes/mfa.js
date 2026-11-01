@@ -4,6 +4,7 @@ const { User } = require('../models');
 const auth = require('../middleware/auth');
 const mfaUtils = require('../utils/mfa');
 const { createRateLimit } = require('../utils/validation');
+const { revokeUserSessions } = require('../utils/sessions');
 
 // Every MFA route verifies a password or TOTP code, so throttle failures per client
 router.use(createRateLimit({ max: 20, skipSuccessfulRequests: true, message: 'Too many MFA attempts. Please try again later.' }));
@@ -99,8 +100,7 @@ router.post('/setup/verify', auth, async (req, res) => {
       });
     }
 
-    // Verify token
-    const isValid = mfaUtils.verifyTOTP(token, user.mfaSecret);
+    const isValid = await mfaUtils.consumeTOTP(user, token);
     if (!isValid) {
       return res.status(400).json({ 
         success: false, 
@@ -114,8 +114,9 @@ router.post('/setup/verify', auth, async (req, res) => {
     // Enable MFA
     await user.update({
       mfaEnabled: true,
-      backupCodes
+      backupCodes: mfaUtils.hashBackupCodes(backupCodes)
     });
+    await revokeUserSessions(user.id, { except: req.sessionId });
 
     res.json({
       success: true,
@@ -174,7 +175,7 @@ router.post('/disable', auth, async (req, res) => {
       // Try TOTP first
       let isValid = false;
       if (user.mfaSecret) {
-        isValid = mfaUtils.verifyTOTP(token, user.mfaSecret);
+        isValid = await mfaUtils.consumeTOTP(user, token);
       }
 
       // Try backup code if TOTP failed
@@ -200,9 +201,11 @@ router.post('/disable', auth, async (req, res) => {
       mfaEnabled: false,
       mfaSecret: null,
       backupCodes: null,
+      mfaLastUsedStep: null,
       emailOtpSecret: null,
       emailOtpExpiry: null
     });
+    await revokeUserSessions(user.id, { except: req.sessionId });
 
     res.json({
       success: true,
@@ -255,7 +258,7 @@ router.post('/backup-codes/regenerate', auth, async (req, res) => {
 
     // Generate new backup codes
     const backupCodes = mfaUtils.generateBackupCodes();
-    await user.update({ backupCodes });
+    await user.update({ backupCodes: mfaUtils.hashBackupCodes(backupCodes) });
 
     res.json({
       success: true,

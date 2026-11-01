@@ -6,6 +6,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 // Components
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
+import ForgotPassword from './components/Auth/ForgotPassword';
+import ResetPassword from './components/Auth/ResetPassword';
+import VerifyEmail from './components/Auth/VerifyEmail';
 import Dashboard from './components/Dashboard/Dashboard';
 import Investments from './components/Investments/Investments';
 import InvestmentDetail from './components/Investments/InvestmentDetail';
@@ -73,6 +76,10 @@ function App() {
               } 
             />
             
+            <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+            <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+
             {/* Protected Routes */}
             <Route 
               path="/dashboard" 

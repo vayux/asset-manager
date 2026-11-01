@@ -1,4 +1,4 @@
-const { User } = require('../models');
+const { User, Session } = require('../models');
 const { verifyAccessToken } = require('../utils/security');
 
 const authMiddleware = async (req, res, next) => {
@@ -23,7 +23,17 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    const user = await User.findByPk(decoded.userId);
+    const [user, session] = await Promise.all([
+      User.findByPk(decoded.userId),
+      decoded.sid ? Session.findByPk(decoded.sid) : null,
+    ]);
+
+    if (!session || session.userId !== decoded.userId || session.revokedAt || session.expiresAt <= new Date()) {
+      return res.status(401).json({
+        message: 'Session has ended. Please login again.',
+        code: 'SESSION_REVOKED'
+      });
+    }
     
     if (!user || !user.isActive) {
       return res.status(401).json({ 
@@ -34,6 +44,7 @@ const authMiddleware = async (req, res, next) => {
 
     // Add user info to request
     req.user = user;
+    req.sessionId = session.id;
     req.tokenInfo = {
       userId: decoded.userId,
       issuedAt: decoded.iat,
@@ -42,7 +53,6 @@ const authMiddleware = async (req, res, next) => {
     
     next();
   } catch (error) {
-    console.error('Auth middleware error:', error.message);
     
     if (error.message.includes('expired')) {
       return res.status(401).json({ 

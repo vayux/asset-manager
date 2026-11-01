@@ -1,7 +1,9 @@
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 const emailService = require('./emailService');
+const { keyedHash, safeEqual } = require('./secretBox');
 
 class MFAUtils {
   isEmailConfigured() {
@@ -37,56 +39,65 @@ class MFAUtils {
   }
 
   /**
-   * Verify TOTP token
+   * Time step of a valid TOTP code, or null. One step of clock drift either way is accepted.
    */
-  verifyTOTP(token, secret, window = 2) {
-    try {
-      // Clean the token input (remove spaces, etc.)
-      const cleanToken = token.toString().replace(/\s/g, '');
-      
-      return speakeasy.totp.verify({
-        secret: secret,
-        encoding: 'base32',
-        token: cleanToken,
-        window: window, // Allow 2 steps before/after for clock drift
-      });
-    } catch (error) {
-      console.error('TOTP verification error:', error);
-      return false;
-    }
+  verifyTOTPStep(token, secret, window = 1) {
+    if (!secret) return null;
+    const result = speakeasy.totp.verifyDelta({
+      secret,
+      encoding: 'base32',
+      token: String(token).replace(/\s/g, ''),
+      window,
+    });
+    if (!result) return null;
+    return Math.floor(Date.now() / 1000 / 30) + result.delta;
   }
 
   /**
-   * Generate backup codes
+   * Accepts a TOTP code at most once: the step must be newer than the last one used.
+   * The conditional update makes concurrent requests with the same code race safely.
+   */
+  async consumeTOTP(user, token) {
+    const step = this.verifyTOTPStep(token, user.mfaSecret);
+    if (step === null) return false;
+    const [count] = await user.constructor.update({ mfaLastUsedStep: step }, {
+      where: {
+        id: user.id,
+        [Op.or]: [{ mfaLastUsedStep: null }, { mfaLastUsedStep: { [Op.lt]: step } }],
+      },
+    });
+    if (count === 1) user.setDataValue('mfaLastUsedStep', step);
+    return count === 1;
+  }
+
+  normalizeBackupCode(code) {
+    return String(code).toUpperCase().replace(/\s/g, '');
+  }
+
+  /**
+   * Generate backup codes (shown once; store only hashBackupCodes(codes))
    */
   generateBackupCodes(count = 8) {
-    const codes = [];
-    for (let i = 0; i < count; i++) {
-      // Generate 8-character alphanumeric codes
-      const code = crypto.randomBytes(4).toString('hex').toUpperCase();
-      codes.push(code);
-    }
-    return codes;
+    return Array.from({ length: count }, () => crypto.randomBytes(5).toString('hex').toUpperCase());
+  }
+
+  hashBackupCodes(codes) {
+    return codes.map((code) => keyedHash(this.normalizeBackupCode(code)));
   }
 
   /**
-   * Verify backup code
+   * Verify a backup code against stored hashes and return the hashes left after using it
    */
-  verifyBackupCode(inputCode, backupCodes) {
-    if (!backupCodes || !Array.isArray(backupCodes)) {
+  verifyBackupCode(inputCode, hashedCodes) {
+    if (!Array.isArray(hashedCodes)) {
       return { valid: false, remainingCodes: null };
     }
-
-    const normalizedInput = inputCode.toUpperCase().replace(/\s/g, '');
-    const codeIndex = backupCodes.indexOf(normalizedInput);
-
+    const inputHash = keyedHash(this.normalizeBackupCode(inputCode));
+    const codeIndex = hashedCodes.findIndex((hash) => safeEqual(hash, inputHash));
     if (codeIndex === -1) {
-      return { valid: false, remainingCodes: backupCodes };
+      return { valid: false, remainingCodes: hashedCodes };
     }
-
-    // Remove used code
-    const remainingCodes = backupCodes.filter((_, index) => index !== codeIndex);
-    return { valid: true, remainingCodes };
+    return { valid: true, remainingCodes: hashedCodes.filter((_, index) => index !== codeIndex) };
   }
 
   /**

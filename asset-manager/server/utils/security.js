@@ -1,38 +1,12 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-// Generate secure JWT tokens
-const generateTokens = (userId) => {
-  const accessToken = jwt.sign(
-    { 
-      userId,
-      type: 'access',
-      iat: Math.floor(Date.now() / 1000)
-    },
-    process.env.JWT_SECRET,
-    { 
-      expiresIn: process.env.JWT_EXPIRE || '15m',
-      issuer: 'asset-manager',
-      audience: 'asset-manager-client'
-    }
-  );
-
-  const refreshToken = jwt.sign(
-    { 
-      userId,
-      type: 'refresh',
-      iat: Math.floor(Date.now() / 1000)
-    },
-    process.env.JWT_REFRESH_SECRET,
-    { 
-      expiresIn: process.env.JWT_REFRESH_EXPIRE || '7d',
-      issuer: 'asset-manager',
-      audience: 'asset-manager-client'
-    }
-  );
-
-  return { accessToken, refreshToken };
-};
+// Short-lived access token bound to a server-side session (sid) so logout and revocation take effect
+const generateAccessToken = (userId, sessionId) => jwt.sign(
+  { userId, sid: sessionId, type: 'access' },
+  process.env.JWT_SECRET,
+  { expiresIn: process.env.JWT_EXPIRE || '15m', issuer: 'asset-manager', audience: 'asset-manager-client' }
+);
 
 const verifyAccessToken = (token) => {
   try {
@@ -63,18 +37,6 @@ const verifyMfaPendingToken = (token) => {
   }
   if (decoded.type !== 'mfa_pending') throw new Error('Invalid or expired MFA session');
   return decoded;
-};
-
-// Verify refresh token
-const verifyRefreshToken = (token) => {
-  try {
-    return jwt.verify(token, process.env.JWT_REFRESH_SECRET, {
-      issuer: 'asset-manager',
-      audience: 'asset-manager-client'
-    });
-  } catch (error) {
-    throw new Error('Invalid or expired refresh token');
-  }
 };
 
 // Generate secure random string
@@ -132,22 +94,14 @@ const securityHeaders = (req, res, next) => {
   next();
 };
 
-// Check if JWT secret is secure
-const validateJWTSecret = () => {
+// Refuse to start without strong secrets
+const validateSecrets = () => {
   const secret = process.env.JWT_SECRET;
-  const refreshSecret = process.env.JWT_REFRESH_SECRET;
-  
   if (!secret || secret === 'fallback_secret' || secret.length < 32) {
     throw new Error('JWT_SECRET must be at least 32 characters long and not use default values');
   }
-  
-  if (!refreshSecret || refreshSecret === 'fallback_secret' || refreshSecret.length < 32) {
-    throw new Error('JWT_REFRESH_SECRET must be at least 32 characters long and not use default values');
-  }
-  
-  if (secret === refreshSecret) {
-    throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be different');
-  }
+  // Throws if MFA_ENCRYPTION_KEY is missing or malformed
+  require('./secretBox').getKey();
 };
 
 // Generate a secure session ID
@@ -156,16 +110,15 @@ const generateSessionId = () => {
 };
 
 module.exports = {
-  generateTokens,
+  generateAccessToken,
   generateMfaPendingToken,
   verifyMfaPendingToken,
   verifyAccessToken,
-  verifyRefreshToken,
   generateSecureToken,
   hashData,
   generateCSRFToken,
   validateCSRFToken,
   securityHeaders,
-  validateJWTSecret,
+  validateSecrets,
   generateSessionId
 }; 

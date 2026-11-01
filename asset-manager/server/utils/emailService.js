@@ -89,6 +89,26 @@ const emailTemplates = {
     `, 'This notification was sent from your MoneyMind account.'),
   }),
 
+  verifyEmail: (data) => ({
+    subject: 'Confirm your email - MoneyMind',
+    html: layout('Confirm your email', '#007bff', `
+      <p>Hello ${escapeHtml(data.firstName)},</p>
+      <p>Confirm this address for your MoneyMind account:</p>
+      <p><a href="${escapeHtml(data.link)}" style="background:#007bff;color:#fff;padding:10px 18px;border-radius:5px;text-decoration:none;">Confirm email</a></p>
+      <p>The link expires in 24 hours. If you did not create an account, ignore this email.</p>
+    `, 'This is an automated message from MoneyMind. Please do not reply to this email.'),
+  }),
+
+  passwordReset: (data) => ({
+    subject: 'Reset your password - MoneyMind',
+    html: layout('Reset your password', '#dc3545', `
+      <p>Hello ${escapeHtml(data.firstName)},</p>
+      <p>Someone asked to reset the password for your MoneyMind account.</p>
+      <p><a href="${escapeHtml(data.link)}" style="background:#dc3545;color:#fff;padding:10px 18px;border-radius:5px;text-decoration:none;">Choose a new password</a></p>
+      <p>The link expires in 30 minutes and can be used once. If this wasn't you, ignore this email; your password is unchanged.</p>
+    `, 'This is an automated security message from MoneyMind.'),
+  }),
+
   loginOtp: (data) => ({
     subject: 'MoneyMind - Login Verification Code',
     html: layout('Login Verification', '#333', `
@@ -161,6 +181,14 @@ const sendLoginOtp = async (user, otp) => {
   return result;
 };
 
+const clientUrl = (path, token) => `${process.env.CLIENT_URL || 'http://localhost:3000'}${path}?token=${encodeURIComponent(token)}`;
+
+const sendVerificationEmail = (user, token) =>
+  sendEmail(user.email, 'verifyEmail', { firstName: user.firstName, link: clientUrl('/verify-email', token) });
+
+const sendPasswordResetEmail = (user, token) =>
+  sendEmail(user.email, 'passwordReset', { firstName: user.firstName, link: clientUrl('/reset-password', token) });
+
 // Lets tests swap in a fake transport
 const setTransporterForTesting = (fake) => {
   transporter = fake;
@@ -172,6 +200,8 @@ module.exports = {
   sendInvestmentUpdate,
   sendGeneralNotification,
   sendLoginOtp,
+  sendVerificationEmail,
+  sendPasswordResetEmail,
   sendEmail,
   initializeEmailService,
   isEmailConfigured,

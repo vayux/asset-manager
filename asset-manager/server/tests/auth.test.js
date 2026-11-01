@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const app = require('../index');
 const { sequelize } = require('../config/database');
 const { resetDatabase } = require('./db');
-const { validateJWTSecret } = require('../utils/security');
+const { validateSecrets, generateAccessToken } = require('../utils/security');
 
 if (!process.env.DB_NAME.endsWith('_test')) {
   throw new Error(`Refusing to run tests against non-test database "${process.env.DB_NAME}"`);
@@ -26,12 +26,13 @@ afterAll(async () => {
 const profileWith = (token) => request(app).get('/api/auth/profile').set('Authorization', `Bearer ${token}`);
 
 describe('tokens', () => {
-  it('issues only access/refresh tokens on login', async () => {
+  it('returns an access token and keeps the refresh token in an httpOnly cookie', async () => {
     const res = await request(app).post('/api/auth/login').send(credentials);
     expect(res.status).toBe(200);
     expect(res.body.accessToken).toBeTruthy();
-    expect(res.body.refreshToken).toBeTruthy();
+    expect(res.body.refreshToken).toBeUndefined();
     expect(res.body.token).toBeUndefined();
+    expect(res.headers['set-cookie'].join(';')).toMatch(/mm_refresh=.+HttpOnly/);
   });
 
   it('accepts a valid access token', async () => {
@@ -50,8 +51,15 @@ describe('tokens', () => {
     expect((await profileWith(untyped)).status).toBe(401);
   });
 
-  it('rejects a refresh token used as an access token', async () => {
-    expect((await profileWith(user.refreshToken)).status).toBe(401);
+  it('rejects a refresh cookie used as an access token', async () => {
+    const res = await request(app).post('/api/auth/login').send(credentials);
+    const cookie = res.headers['set-cookie'].find(c => c.startsWith('mm_refresh=')).split(';')[0].split('=')[1];
+    expect((await profileWith(cookie)).status).toBe(401);
+  });
+
+  it('rejects access tokens that are not bound to a session', async () => {
+    const unbound = generateAccessToken(user.user.id, '00000000-0000-4000-8000-000000000000');
+    expect((await profileWith(unbound)).status).toBe(401);
   });
 
   it('rejects tokens signed with the old fallback secret', async () => {
@@ -62,15 +70,15 @@ describe('tokens', () => {
   });
 });
 
-describe('JWT secret validation', () => {
+describe('secret validation', () => {
   const original = { ...process.env };
   afterEach(() => {
     process.env.JWT_SECRET = original.JWT_SECRET;
-    process.env.JWT_REFRESH_SECRET = original.JWT_REFRESH_SECRET;
+    process.env.MFA_ENCRYPTION_KEY = original.MFA_ENCRYPTION_KEY;
   });
 
   it('accepts the configured secrets', () => {
-    expect(() => validateJWTSecret()).not.toThrow();
+    expect(() => validateSecrets()).not.toThrow();
   });
 
   it.each([
@@ -80,12 +88,13 @@ describe('JWT secret validation', () => {
   ])('refuses a %s JWT_SECRET', (_label, value) => {
     if (value === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = value;
-    expect(() => validateJWTSecret()).toThrow();
+    expect(() => validateSecrets()).toThrow();
   });
 
-  it('refuses identical access and refresh secrets', () => {
-    process.env.JWT_REFRESH_SECRET = process.env.JWT_SECRET;
-    expect(() => validateJWTSecret()).toThrow();
+  it.each([['missing', undefined], ['short', 'abcd'], ['non-hex', 'z'.repeat(64)]])('refuses a %s MFA_ENCRYPTION_KEY', (_label, value) => {
+    if (value === undefined) delete process.env.MFA_ENCRYPTION_KEY;
+    else process.env.MFA_ENCRYPTION_KEY = value;
+    expect(() => validateSecrets()).toThrow();
   });
 });
 
@@ -109,6 +118,9 @@ const startLogin = async (email) => {
   expect(res.status).toBe(200);
   return res.body;
 };
+
+// The setup step consumes the current TOTP step, so logins use the next one (inside the drift window)
+const nextTotp = (secret) => speakeasy.totp({ secret, encoding: 'base32', time: Math.floor(Date.now() / 1000) + 30 });
 
 const finishLogin = (mfaPendingToken, method, code) => request(app)
   .post('/api/auth/login/mfa').send({ mfaPendingToken, method, code });
@@ -138,7 +150,7 @@ describe('MFA login challenge', () => {
   it('rejects a wrong TOTP code and accepts the right one', async () => {
     const { mfaPendingToken } = await startLogin(dave.email);
     expect((await finishLogin(mfaPendingToken, 'totp', '000000')).status).toBe(401);
-    const ok = await finishLogin(mfaPendingToken, 'totp', speakeasy.totp({ secret: dave.secret, encoding: 'base32' }));
+    const ok = await finishLogin(mfaPendingToken, 'totp', nextTotp(dave.secret));
     expect(ok.status).toBe(200);
     expect((await profileWith(ok.body.accessToken)).status).toBe(200);
   });
@@ -152,7 +164,7 @@ describe('MFA login challenge', () => {
   });
 
   it('rejects forged or non-challenge tokens', async () => {
-    const code = speakeasy.totp({ secret: dave.secret, encoding: 'base32' });
+    const code = nextTotp(dave.secret);
     const forged = jwt.sign({ userId: dave.id, type: 'mfa_pending' }, 'some-other-secret-value-0123456789abcdef', {
       issuer: 'asset-manager', audience: 'asset-manager-client',
     });

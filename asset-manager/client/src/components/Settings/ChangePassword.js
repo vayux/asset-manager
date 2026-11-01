@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { getAccessToken } from '../../contexts/AuthContext';
 
 const ChangePassword = ({ isOpen, onClose }) => {
   const [formData, setFormData] = useState({
@@ -104,7 +105,7 @@ const ChangePassword = ({ isOpen, onClose }) => {
     setLoading(true);
     
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: {

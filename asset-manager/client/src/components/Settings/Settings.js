@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, getAccessToken } from '../../contexts/AuthContext';
 import MFASetup from '../MFA/MFASetup';
 import ChangePassword from './ChangePassword';
 import { 
@@ -10,7 +10,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Settings = () => {
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, logoutOtherDevices } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [profileData, setProfileData] = useState({
     firstName: user?.firstName || '',
@@ -29,7 +29,7 @@ const Settings = () => {
   useEffect(() => {
     const loadNotificationSettings = async () => {
       try {
-        const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+        const accessToken = getAccessToken();
         const response = await fetch('/api/settings/notifications', {
           headers: {
             'Authorization': `Bearer ${accessToken}`
@@ -85,7 +85,7 @@ const Settings = () => {
     }));
 
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/settings/notifications', {
         method: 'PUT',
         headers: {
@@ -254,6 +254,16 @@ const Settings = () => {
                         Change Password
                       </button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900">Other devices</h3>
+                      <p className="text-sm text-gray-500">Sign out every session except this one</p>
+                    </div>
+                    <button type="button" onClick={logoutOtherDevices} className="btn-secondary">
+                      Sign out other devices
+                    </button>
                   </div>
 
                   {/* MFA Section */}
