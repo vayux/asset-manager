@@ -89,7 +89,7 @@ describe('JWT secret validation', () => {
 });
 
 const speakeasy = require('speakeasy');
-const mfaUtils = require('../utils/mfa');
+const emailService = require('../utils/emailService');
 
 const enableMfa = async (name) => {
   const email = `${name}@example.com`;
@@ -165,15 +165,16 @@ describe('MFA login challenge', () => {
     let sendMail;
     beforeAll(() => {
       sendMail = jest.fn().mockResolvedValue(true);
-      jest.spyOn(mfaUtils, 'isEmailConfigured').mockReturnValue(true);
-      mfaUtils.emailTransporter = { sendMail };
+      emailService.setTransporterForTesting({ sendMail });
     });
     afterAll(() => {
-      jest.restoreAllMocks();
-      mfaUtils.emailTransporter = null;
+      emailService.setTransporterForTesting(null);
     });
 
-    const lastOtp = () => sendMail.mock.calls.at(-1)[0].html.match(/>(\d{6})</)[1];
+    const lastOtp = () => sendMail.mock.calls
+      .map(([mail]) => mail)
+      .filter(mail => mail.subject.includes('Verification Code'))
+      .at(-1).html.match(/>(\d{6})</)[1];
 
     it('offers email and verifies the emailed code', async () => {
       const { mfaPendingToken, methods } = await startLogin(dave.email);

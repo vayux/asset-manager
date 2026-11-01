@@ -5,6 +5,7 @@ const { AssetValuation } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation } = require('../middleware/validate');
 const pick = require('../utils/pick');
+const { bookValue } = require('../utils/depreciation');
 
 const router = express.Router();
 
@@ -23,22 +24,15 @@ router.get('/', async (req, res) => {
     }
     const assets = await Asset.findAll({ where, order: [['createdAt', 'DESC']] });
 
-    // Compute straight-line depreciation book value when applicable
     const now = new Date();
     const transformed = assets.map((a) => {
       const plain = a.get({ plain: true });
-      const hasRate = plain.depreciationRate && plain.purchaseDate;
-      if (hasRate) {
-        const years = Math.max(0, (now - new Date(plain.purchaseDate)) / (1000 * 60 * 60 * 24 * 365.25));
-        const rate = parseFloat(plain.depreciationRate) / 100;
-        const bookVal = parseFloat(plain.currentValue) * (1 - rate * years);
-        const computed = bookVal > 0 ? parseFloat(bookVal.toFixed(2)) : 0;
+      const computed = bookValue(plain, now);
+      if (plain.depreciationRate && plain.purchaseDate) {
         plain.originalValue = parseFloat(plain.currentValue);
         plain.currentValue = computed;
-        plain.bookValue = computed;
-      } else {
-        plain.bookValue = parseFloat(plain.currentValue);
       }
+      plain.bookValue = computed;
       return plain;
     });
 

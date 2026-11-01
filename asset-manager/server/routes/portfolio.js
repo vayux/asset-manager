@@ -208,6 +208,9 @@ router.post('/snapshot', [
       snapshot,
     });
   } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'Snapshot already exists for this date' });
+    }
     console.error('Create snapshot error:', error);
     res.status(500).json({ message: 'Failed to create portfolio snapshot' });
   }

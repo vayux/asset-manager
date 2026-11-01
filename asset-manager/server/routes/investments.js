@@ -371,15 +371,15 @@ router.post('/bulk', [
   const errors = validationResult(req); if(!errors.isEmpty()) return res.status(400).json({errors:errors.array()});
   try {
     const rows = req.body;
-    const created = await Promise.all(rows.map(r=>Investment.create({
+    const created = await Investment.sequelize.transaction((transaction) => Investment.bulkCreate(rows.map(r=>({
       userId: req.user.id,
       name: r.name.trim(),
       category: r.category || 'other',
       currentAmount: r.currentAmount,
       investmentDate: r.investmentDate || format(new Date(),'yyyy-MM-dd'),
-    })));
+    })), { validate: true, transaction }));
     res.status(201).json({created});
-  }catch(err){ console.error(err); res.status(500).json({message:'bulk insert failed'}); }
+  }catch(err){ console.error('bulk insert failed:', err.message); res.status(500).json({message:'bulk insert failed; no investments were saved'}); }
 });
 
 // Export router

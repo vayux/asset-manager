@@ -9,7 +9,6 @@ const {
   createAuthRateLimit,
   createLoginEmailRateLimit,
   createRateLimit,
-  sanitizeInput,
   detectSuspiciousInput
 } = require('../utils/validation');
 const { 
@@ -97,9 +96,8 @@ router.post('/register', [
     let { email, password, firstName, lastName } = req.body;
 
     // Sanitize inputs
-    email = sanitizeInput(email);
-    firstName = sanitizeInput(firstName);
-    lastName = sanitizeInput(lastName);
+    firstName = String(firstName).trim();
+    lastName = String(lastName).trim();
 
     // Check for suspicious input
     if (detectSuspiciousInput(firstName) || detectSuspiciousInput(lastName)) {
@@ -118,21 +116,12 @@ router.post('/register', [
       });
     }
 
-    // Only enforce strong password validation for new registrations
-    // Existing users can continue using their current passwords
-    const passwordValidation = validatePasswordStrength(password);
+    const passwordValidation = validatePasswordStrength(String(password || ''));
     if (!passwordValidation.isValid) {
-      // For now, just warn about weak passwords but don't block registration
-      // This allows for gradual migration to stronger passwords
-      console.warn(`Weak password detected during registration for email: ${email}`);
-      
-      // In production, you might want to enforce this:
-      if (process.env.ENFORCE_STRONG_PASSWORDS === 'true') {
-        return res.status(400).json({ 
-          message: 'Password does not meet security requirements',
-          errors: passwordValidation.errors.map(err => ({ field: 'password', message: err }))
-        });
-      }
+      return res.status(400).json({
+        message: 'Password does not meet security requirements',
+        errors: passwordValidation.errors.map(err => ({ field: 'password', message: err }))
+      });
     }
 
     const firstNameValidation = validateName(firstName, 'First name');
@@ -217,8 +206,6 @@ router.post('/login', [
 
     let { email, password } = req.body;
 
-    // Sanitize email input
-    email = sanitizeInput(email);
 
     // Additional email validation
     const emailValidation = validateEmail(email);
@@ -339,7 +326,7 @@ router.post('/login/email-otp', emailOtpSendLimit, [
   const { otp, expiry } = mfaUtils.generateEmailOTP();
   // Persist before sending so a code that reaches the inbox is always verifiable
   await user.update({ emailOtpSecret: mfaUtils.hashSecret(otp), emailOtpExpiry: expiry, emailOtpAttempts: 0 });
-  await mfaUtils.sendEmailOTP(user.email, otp, user.firstName);
+  await mfaUtils.sendEmailOTP(user, otp);
 
   res.json({ success: true, message: 'Verification code sent to your email' });
 });
@@ -438,8 +425,20 @@ router.put('/profile', authMiddleware, [
     const { firstName, lastName, email } = req.body;
     const updateData = {};
 
-    if (firstName) updateData.firstName = firstName;
-    if (lastName) updateData.lastName = lastName;
+    for (const [field, label] of [['firstName', 'First name'], ['lastName', 'Last name']]) {
+      if (req.body[field] === undefined) continue;
+      const check = validateName(String(req.body[field]), label);
+      const problems = detectSuspiciousInput(String(req.body[field])) ? ['Invalid input detected'] : check.errors;
+      if (problems.length) {
+        return res.status(400).json({
+          message: `${label} validation failed`,
+          errors: problems.map(message => ({ field, message }))
+        });
+      }
+    }
+
+    if (firstName) updateData.firstName = firstName.trim();
+    if (lastName) updateData.lastName = lastName.trim();
     if (email && email !== req.user.email) {
       // Check if email is already taken
       const existingUser = await User.findOne({ where: { email } });

@@ -233,9 +233,10 @@ describe('email service', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     process.env.EMAIL_HOST = 'smtp.example.com';
     try {
-      jest.isolateModules(() => require('../utils/emailService'));
+      let service;
+      jest.isolateModules(() => { service = require('../utils/emailService'); });
       expect(errorSpy).not.toHaveBeenCalled();
-      expect(logSpy).toHaveBeenCalledWith('Email service initialized successfully');
+      expect(service.isEmailConfigured()).toBe(true);
     } finally {
       delete process.env.EMAIL_HOST;
       errorSpy.mockRestore();

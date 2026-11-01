@@ -93,7 +93,7 @@ const validateName = (name, fieldName) => {
   }
 
   // Check for valid characters (letters, spaces, hyphens, apostrophes)
-  if (!/^[a-zA-Z\s\-']+$/.test(trimmedName)) {
+  if (!/^[\p{L}\p{M}\s\-'.]+$/u.test(trimmedName)) {
     errors.push(`${fieldName} can only contain letters, spaces, hyphens, and apostrophes`);
   }
 
@@ -149,13 +149,6 @@ const createRateLimit = ({ max, windowMs = 15 * 60 * 1000, keyGenerator, skipSuc
   legacyHeaders: false,
 });
 
-// Sanitize user input
-const sanitizeInput = (input) => {
-  if (typeof input !== 'string') return input;
-  
-  return validator.escape(input.trim());
-};
-
 // Check for suspicious patterns in input
 const detectSuspiciousInput = (input) => {
   const suspiciousPatterns = [
@@ -178,6 +171,5 @@ module.exports = {
   createAuthRateLimit,
   createLoginEmailRateLimit,
   createRateLimit,
-  sanitizeInput,
   detectSuspiciousInput
 }; 
