@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import api from '../../api/client';
 import { ArrowPathIcon, ArrowTopRightOnSquareIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { CHECKLIST, LAST_REVIEWED, LONG_TERM, MID_TERM, SHORT_TERM_RULES, quoteUrl } from './researchData';
 
@@ -78,32 +79,20 @@ const StockTable = ({ rows, quotes, loading }) => (
 
 const Research = () => {
   const [tab, setTab] = useState('long');
-  const [quotes, setQuotes] = useState({});
-  const [meta, setMeta] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
   const rows = tab === 'long' ? LONG_TERM : tab === 'mid' ? MID_TERM : null;
 
-  const loadQuotes = useCallback(async (list) => {
-    if (!list) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const symbols = list.map(r => encodeURIComponent(r.symbol)).join(',');
-      const { data } = await axios.get(`/api/research/quotes?symbols=${symbols}`);
-      setQuotes(prev => ({ ...prev, ...data.quotes }));
-      setMeta({ source: data.source, fetchedAt: data.fetchedAt, unavailable: data.unavailable });
-    } catch (err) {
-      setError('Live prices are unavailable right now.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadQuotes(rows);
-  }, [rows, loadQuotes]);
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey: ['research-quotes', tab],
+    queryFn: async () => {
+      const symbols = rows.map(r => encodeURIComponent(r.symbol)).join(',');
+      return (await api.get(`/api/research/quotes?symbols=${symbols}`)).data;
+    },
+    enabled: Boolean(rows),
+    staleTime: 60 * 1000,
+  });
+  const quotes = data?.quotes || {};
+  const loading = isFetching;
+  const meta = data && { source: data.source, fetchedAt: data.fetchedAt, unavailable: data.unavailable };
 
   return (
     <div className="space-y-6">
@@ -139,12 +128,12 @@ const Research = () => {
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
               <span>
-                {error || (meta
+                {(error && 'Live prices are unavailable right now.') || (meta
                   ? `Prices from ${meta.source}, may be delayed up to 15 minutes. Updated ${new Date(meta.fetchedAt).toLocaleTimeString('en-IN')}.`
                   : 'Loading live prices…')}
                 {meta?.unavailable?.length ? ` No price for ${meta.unavailable.join(', ')}.` : ''}
               </span>
-              <button type="button" onClick={() => loadQuotes(rows)} disabled={loading}
+              <button type="button" onClick={() => refetch()} disabled={loading}
                 className="inline-flex items-center text-primary-600 hover:text-primary-500 disabled:opacity-50">
                 <ArrowPathIcon className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh prices
               </button>

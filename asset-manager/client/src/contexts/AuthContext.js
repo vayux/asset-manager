@@ -1,18 +1,16 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api/client';
 import toast from 'react-hot-toast';
 
 // The refresh token lives in an httpOnly cookie; the access token is kept in memory only
-axios.defaults.withCredentials = true;
-axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
 let accessToken = null;
 export const getAccessToken = () => accessToken;
 
 const setAccessToken = (token) => {
   accessToken = token;
-  if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-  else delete axios.defaults.headers.common.Authorization;
+  if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`;
+  else delete api.defaults.headers.common.Authorization;
 };
 
 const NO_RETRY_PATHS = ['/api/auth/login', '/api/auth/register', '/api/auth/refresh', '/api/auth/logout',
@@ -29,7 +27,7 @@ const refreshSession = () => {
       let lastError;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const { data } = await axios.post('/api/auth/refresh');
+          const { data } = await api.post('/api/auth/refresh');
           setAccessToken(data.accessToken);
           return data;
         } catch (error) {
@@ -78,7 +76,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    const interceptor = axios.interceptors.response.use(
+    const interceptor = api.interceptors.response.use(
       (response) => response,
       async (error) => {
         const original = error.config || {};
@@ -89,7 +87,7 @@ export const AuthProvider = ({ children }) => {
             const data = await refreshSession();
             setUser(data.user);
             original.headers.set('Authorization', `Bearer ${data.accessToken}`);
-            return axios(original);
+            return api(original);
           } catch (refreshError) {
             endSession();
             toast.error('Session expired. Please login again.');
@@ -98,7 +96,7 @@ export const AuthProvider = ({ children }) => {
         return Promise.reject(error);
       }
     );
-    return () => axios.interceptors.response.eject(interceptor);
+    return () => api.interceptors.response.eject(interceptor);
   }, [endSession]);
 
   // Restore the session from the refresh cookie on page load
@@ -126,7 +124,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const { data } = await axios.post('/api/auth/login', { email, password });
+      const { data } = await api.post('/api/auth/login', { email, password });
       if (data.requiresMFA) {
         return { success: true, requiresMFA: true, mfaPendingToken: data.mfaPendingToken, methods: data.methods || [] };
       }
@@ -140,7 +138,7 @@ export const AuthProvider = ({ children }) => {
 
   const completeMfaLogin = async (mfaPendingToken, method, code) => {
     try {
-      const { data } = await axios.post('/api/auth/login/mfa', { mfaPendingToken, method, code });
+      const { data } = await api.post('/api/auth/login/mfa', { mfaPendingToken, method, code });
       storeSession(data);
       toast.success('Login successful!');
       return { success: true };
@@ -152,7 +150,7 @@ export const AuthProvider = ({ children }) => {
 
   const sendLoginEmailOtp = async (mfaPendingToken) => {
     try {
-      await axios.post('/api/auth/login/email-otp', { mfaPendingToken });
+      await api.post('/api/auth/login/email-otp', { mfaPendingToken });
       toast.success('Verification code sent to your email');
       return { success: true };
     } catch (error) {
@@ -162,7 +160,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const { data } = await axios.post('/api/auth/register', userData);
+      const { data } = await api.post('/api/auth/register', userData);
       storeSession(data);
       toast.success(data.verificationEmailSent
         ? 'Account created! Check your inbox to confirm your email.'
@@ -175,7 +173,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await axios.post('/api/auth/logout');
+      await api.post('/api/auth/logout');
     } catch (error) {
       // The local session is cleared either way
     }
@@ -185,7 +183,7 @@ export const AuthProvider = ({ children }) => {
 
   const logoutOtherDevices = async () => {
     try {
-      const { data } = await axios.post('/api/auth/logout-all');
+      const { data } = await api.post('/api/auth/logout-all');
       toast.success(data.revoked ? `Signed out ${data.revoked} other session(s)` : 'No other active sessions');
       return { success: true };
     } catch (error) {
@@ -195,7 +193,7 @@ export const AuthProvider = ({ children }) => {
 
   const reloadUser = useCallback(async () => {
     try {
-      const { data } = await axios.get('/api/auth/profile');
+      const { data } = await api.get('/api/auth/profile');
       setUser(data.user);
     } catch (error) {
       // Not signed in
@@ -204,7 +202,7 @@ export const AuthProvider = ({ children }) => {
 
   const updateProfile = async (profileData) => {
     try {
-      const response = await axios.put('/api/auth/profile', profileData);
+      const response = await api.put('/api/auth/profile', profileData);
       setUser(response.data.user);
       toast.success('Profile updated successfully!');
       return { success: true };

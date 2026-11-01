@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import AuthCard from './AuthCard';
 
@@ -14,7 +14,7 @@ const VerifyEmail = () => {
     // The token is single-use, so make sure a double-mounted effect only sends it once
     if (started.current) return;
     started.current = true;
-    axios.post('/api/auth/verify-email', { token: params.get('token') || '' })
+    api.post('/api/auth/verify-email', { token: params.get('token') || '' })
       .then(() => {
         setStatus('done');
         reloadUser();

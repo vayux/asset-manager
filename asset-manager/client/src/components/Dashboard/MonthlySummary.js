@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import { format } from 'date-fns';
 import { formatCurrency } from '../../utils/currency';
 
@@ -10,7 +10,7 @@ const MonthlySummary = () => {
   useEffect(()=>{
     const fetch=async()=>{
       try{
-        const res = await axios.get('/api/portfolio/analytics/monthly?limit=2');
+        const res = await api.get('/api/portfolio/analytics/monthly?limit=2');
         const arr = res.data.data||[];
         if(arr.length<2) return;
         const last=arr[arr.length-1];

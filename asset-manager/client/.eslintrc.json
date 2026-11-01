@@ -1,0 +1,10 @@
+{
+  "root": true,
+  "extends": ["react-app"],
+  "overrides": [
+    {
+      "files": ["src/**/*.test.js", "src/setupTests.js"],
+      "globals": { "vi": "readonly", "describe": "readonly", "it": "readonly", "expect": "readonly", "beforeEach": "readonly", "afterEach": "readonly", "beforeAll": "readonly", "afterAll": "readonly" }
+    }
+  ]
+}

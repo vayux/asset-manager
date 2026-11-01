@@ -1,6 +1,6 @@
 import React, {useEffect,useState} from 'react';
 import {useParams, Link} from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
 import { formatCurrency } from '../../utils/currency';
@@ -16,8 +16,8 @@ const InvestmentDetail=()=>{
     const fetch=async()=>{
       try{
         const [histRes, invRes]=await Promise.all([
-          axios.get(`/api/investments/${id}/history`),
-          axios.get(`/api/investments/${id}`)
+          api.get(`/api/investments/${id}/history`),
+          api.get(`/api/investments/${id}`)
         ]);
         setHistory(histRes.data.histories||[]);
         setInv(invRes.data.investment);

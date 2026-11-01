@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import api from '../../api/client';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from 'recharts';
 import { PieChart, Pie, Cell } from 'recharts';
 import { format } from 'date-fns';
@@ -37,8 +37,8 @@ const Portfolio = () => {
   const loadNetWorth = useCallback(async () => {
     try {
       const [series, ret] = await Promise.all([
-        axios.get('/api/portfolio/net-worth?limit=90'),
-        axios.get('/api/portfolio/returns'),
+        api.get('/api/portfolio/net-worth?limit=90'),
+        api.get('/api/portfolio/returns'),
       ]);
       setNetWorthSeries(series.data.data || []);
       setReturns(ret.data);
@@ -53,7 +53,7 @@ const Portfolio = () => {
 
   const takeSnapshot = async () => {
     try {
-      await axios.post('/api/portfolio/snapshot', { snapshotDate: format(new Date(), 'yyyy-MM-dd') });
+      await api.post('/api/portfolio/snapshot', { snapshotDate: format(new Date(), 'yyyy-MM-dd') });
       toast.success('Snapshot saved');
       loadNetWorth();
     } catch (error) {
@@ -69,10 +69,10 @@ const Portfolio = () => {
       await fetchGrowth();
       if(investmentFilter==='all'){
         const [stackedRes, pieRes, assetsRes, liabilitiesRes] = await Promise.all([
-          axios.get('/api/portfolio/analytics/stacked?limit=12'),
-          axios.get(`/api/portfolio/overview?month=${monthFilter}`),
-          axios.get('/api/assets'),
-          axios.get('/api/liabilities'),
+          api.get('/api/portfolio/analytics/stacked?limit=12'),
+          api.get(`/api/portfolio/overview?month=${monthFilter}`),
+          api.get('/api/assets'),
+          api.get('/api/liabilities'),
         ]);
         const map = {};
         stackedRes.data.data.forEach(r=>{
@@ -152,10 +152,10 @@ const Portfolio = () => {
 
   const fetchGrowth = async () => {
     if(investmentFilter==='all'){
-      const growthRes = await axios.get('/api/portfolio/analytics/monthly?limit=12');
+      const growthRes = await api.get('/api/portfolio/analytics/monthly?limit=12');
       setGrowthData(growthRes.data.data||[]);
     }else{
-      const hist = await axios.get(`/api/investments/${investmentFilter}/history`);
+      const hist = await api.get(`/api/investments/${investmentFilter}/history`);
       const map={};
       hist.data.histories.forEach(h=>{
         const m=h.valuationDate.substring(0,7);
@@ -176,8 +176,8 @@ const Portfolio = () => {
       const fetch=async()=>{
         try{
           const [h,i]=await Promise.all([
-            axios.get(`/api/investments/${invId}/history`),
-            axios.get(`/api/investments/${invId}`)
+            api.get(`/api/investments/${invId}/history`),
+            api.get(`/api/investments/${invId}`)
           ]);
           setInvHistory(h.data.histories||[]);
           setInvObj(i.data.investment);
@@ -192,7 +192,7 @@ const Portfolio = () => {
     const loadInv=async()=>{
       try{
         // Fetch only active investments and deduplicate by label (name + subCategory)
-        const res = await axios.get('/api/investments'); // defaults to active=true
+        const res = await api.get('/api/investments'); // defaults to active=true
         const raw = res.data.investments || [];
         const seen = new Set();
         const unique = [];
@@ -283,10 +283,10 @@ const Portfolio = () => {
     const monthStr = monthFilter;
     try {
       const [budgetEntryRes, goalsRes, healthRes, recRes] = await Promise.all([
-        axios.get(`/api/budget/entries?month=${monthStr}`),
-        axios.get('/api/goals'),
-        axios.get(`/api/optimizer/health?month=${monthStr}`),
-        axios.get(`/api/optimizer/recommendations?month=${monthStr}`),
+        api.get(`/api/budget/entries?month=${monthStr}`),
+        api.get('/api/goals'),
+        api.get(`/api/optimizer/health?month=${monthStr}`),
+        api.get(`/api/optimizer/recommendations?month=${monthStr}`),
       ]);
 
       // Budget summary

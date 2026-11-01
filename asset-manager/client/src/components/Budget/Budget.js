@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -25,8 +25,8 @@ const Budget = () => {
     try {
       setLoading(true);
       const [catRes, entryRes] = await Promise.all([
-        axios.get('/api/budget/categories'),
-        axios.get(`/api/budget/entries?month=${month}`),
+        api.get('/api/budget/categories'),
+        api.get(`/api/budget/entries?month=${month}`),
       ]);
       setCategories(catRes.data.categories || []);
       const mapBudget = {}, mapSpent = {};
@@ -56,7 +56,7 @@ const Budget = () => {
     const amt = parseFloat(entries[catId] || 0);
     if(amt<0){toast.error('Amount cannot be negative'); return;}
     try {
-      await axios.post('/api/budget/entries', {
+      await api.post('/api/budget/entries', {
         categoryId: catId,
         month: `${month}-01`,
         budgetedAmount: amt,
@@ -71,7 +71,7 @@ const Budget = () => {
   const handleAddCategory = async () => {
     if (!newCat.name.trim()) return;
     try {
-      const res = await axios.post('/api/budget/categories', {
+      const res = await api.post('/api/budget/categories', {
         name: newCat.name.trim(),
         frameworkTag: newCat.tag,
       });
@@ -141,7 +141,7 @@ const Budget = () => {
                           onBlur={async()=>{
                             const amt = parseFloat(spentMap[cat.id]||0);
                             if(amt<0){toast.error('Amount cannot be negative'); return;}
-                            await axios.post('/api/budget/entries',{categoryId:cat.id,month:`${month}-01`,budgetedAmount:entries[cat.id]||0,spentAmount:amt});
+                            await api.post('/api/budget/entries',{categoryId:cat.id,month:`${month}-01`,budgetedAmount:entries[cat.id]||0,spentAmount:amt});
                           }}
                         />
                       </td>

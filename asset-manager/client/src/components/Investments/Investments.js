@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { ArrowUpTrayIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { formatCurrency } from '../../utils/currency';
@@ -88,7 +88,7 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
     setLoading(true);
     try {
       if (isEdit) {
-        await axios.put(`/api/investments/${investment.id}`, {
+        await api.put(`/api/investments/${investment.id}`, {
           name: formData.name.trim(),
           category: formData.category,
           subCategory: formData.subCategory.trim() || undefined,
@@ -98,7 +98,7 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
         });
         toast.success('Investment updated');
       } else {
-        await axios.post('/api/investments', {
+        await api.post('/api/investments', {
           name: formData.name.trim(),
           category: formData.category,
           subCategory: formData.subCategory.trim() || undefined,
@@ -273,7 +273,7 @@ const Investments = () => {
     try {
       setLoading(true);
       const query = monthFilter ? `?month=${monthFilter}` : '';
-      const res = await axios.get(`/api/investments${query}`);
+      const res = await api.get(`/api/investments${query}`);
       setInvestments(res.data.investments || []);
     } catch (error) {
       toast.error('Failed to fetch investments');
@@ -292,7 +292,7 @@ const Investments = () => {
     if (!file) return;
     try {
       const text = await file.text();
-      const res = await axios.post('/api/investments/import', text, { headers: { 'Content-Type': 'text/csv' } });
+      const res = await api.post('/api/investments/import', text, { headers: { 'Content-Type': 'text/csv' } });
       toast.success(`Imported ${res.data.imported} investment(s)`);
       fetchInvestments();
     } catch (error) {
@@ -305,7 +305,7 @@ const Investments = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this investment?')) return;
     try {
-      await axios.delete(`/api/investments/${id}`);
+      await api.delete(`/api/investments/${id}`);
       toast.success('Deleted');
       fetchInvestments();
     } catch (error) {

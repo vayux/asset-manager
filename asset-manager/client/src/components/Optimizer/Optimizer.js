@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
@@ -27,9 +27,9 @@ const Optimizer = () => {
     const fetchData = async()=>{
       try{
         const [healthRes, taxRes, recRes] = await Promise.all([
-          axios.get(`/api/optimizer/health?month=${month}`),
-          axios.get(`/api/optimizer/tax-loss?threshold=${threshold}`),
-          axios.get(`/api/optimizer/recommendations?month=${month}`),
+          api.get(`/api/optimizer/health?month=${month}`),
+          api.get(`/api/optimizer/tax-loss?threshold=${threshold}`),
+          api.get(`/api/optimizer/recommendations?month=${month}`),
         ]);
         setHealth(healthRes.data);
         setTaxOps(taxRes.data.opportunities||[]);

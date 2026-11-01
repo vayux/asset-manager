@@ -2,16 +2,16 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import { AuthProvider, useAuth } from '../../contexts/AuthContext';
 import Login from './Login';
 
-jest.mock('axios', () => ({
+vi.mock('../../api/client', () => ({ default: {
   defaults: { headers: { common: {} } },
-  interceptors: { response: { use: jest.fn(() => 1), eject: jest.fn() } },
-  post: jest.fn(),
-  get: jest.fn(),
-}));
+  interceptors: { response: { use: vi.fn(() => 1), eject: vi.fn() } },
+  post: vi.fn(),
+  get: vi.fn(),
+} }));
 
 const noSession = { response: { status: 401, data: { code: 'NO_REFRESH_TOKEN' } } };
 
@@ -28,24 +28,24 @@ const renderWithAuth = (ui) => render(
 );
 
 beforeEach(() => {
-  jest.clearAllMocks();
-  delete axios.defaults.headers.common.Authorization;
+  vi.clearAllMocks();
+  delete api.defaults.headers.common.Authorization;
 });
 
 it('restores the session from the refresh cookie and keeps the access token out of localStorage', async () => {
-  axios.post.mockImplementation((url) => (url === '/api/auth/refresh'
+  api.post.mockImplementation((url) => (url === '/api/auth/refresh'
     ? Promise.resolve({ data: { accessToken: 'access-1', user: { email: 'demo@example.com' } } })
     : Promise.reject(new Error(`unexpected ${url}`))));
 
   renderWithAuth(<CurrentUser />);
 
   expect(await screen.findByText('signed in as demo@example.com')).toBeInTheDocument();
-  expect(axios.defaults.headers.common.Authorization).toBe('Bearer access-1');
+  expect(api.defaults.headers.common.Authorization).toBe('Bearer access-1');
   expect(window.localStorage.getItem('accessToken')).toBeNull();
 });
 
 it('walks through the MFA step without reloading the page', async () => {
-  axios.post.mockImplementation((url) => {
+  api.post.mockImplementation((url) => {
     if (url === '/api/auth/refresh') return Promise.reject(noSession);
     if (url === '/api/auth/login') return Promise.resolve({ data: { requiresMFA: true, mfaPendingToken: 'pending', methods: ['totp', 'backup'] } });
     if (url === '/api/auth/login/mfa') return Promise.resolve({ data: { accessToken: 'access-2', user: { email: 'mfa@example.com' } } });
@@ -63,6 +63,6 @@ it('walks through the MFA step without reloading the page', async () => {
   await userEvent.type(codeInput, '123456');
   await userEvent.click(screen.getByRole('button', { name: /verify|sign in/i }));
 
-  await waitFor(() => expect(axios.post).toHaveBeenCalledWith('/api/auth/login/mfa', { mfaPendingToken: 'pending', method: 'totp', code: '123456' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/auth/login/mfa', { mfaPendingToken: 'pending', method: 'totp', code: '123456' }));
   expect(await screen.findByText('signed in as mfa@example.com')).toBeInTheDocument();
 });

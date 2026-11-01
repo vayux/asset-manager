@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { formatCurrency } from '../../utils/currency';
@@ -47,7 +47,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
     setLoading(true);
     try {
       if (isEdit) {
-        await axios.put(`/api/assets/${asset.id}`, {
+        await api.put(`/api/assets/${asset.id}`, {
           name: formData.name.trim(),
           category: formData.category,
           currentValue: parseFloat(formData.currentValue),
@@ -56,7 +56,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
         });
         toast.success('Asset updated');
       } else {
-        await axios.post('/api/assets', {
+        await api.post('/api/assets', {
           name: formData.name.trim(),
           category: formData.category,
           currentValue: parseFloat(formData.currentValue),
@@ -171,7 +171,7 @@ const Assets = () => {
   const fetchAssets = async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get('/api/assets');
+      const { data } = await api.get('/api/assets');
       setAssets(data.assets);
     } catch (error) {
       toast.error('Failed to fetch assets');
@@ -187,7 +187,7 @@ const Assets = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to archive this asset?')) return;
     try {
-      await axios.delete(`/api/assets/${id}`);
+      await api.delete(`/api/assets/${id}`);
       toast.success('Asset archived');
       fetchAssets();
     } catch (error) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import { addDays, format } from 'date-fns';
 import { formatCurrency } from '../../utils/currency';
@@ -32,10 +32,10 @@ const CashFlowForecast = () => {
       try{
         setLoading(true);
         const [assetsRes, liabRes, incRes, invRes] = await Promise.all([
-          axios.get('/api/assets'),
-          axios.get('/api/liabilities'),
-          axios.get('/api/income'),
-          axios.get('/api/investments'),
+          api.get('/api/assets'),
+          api.get('/api/liabilities'),
+          api.get('/api/income'),
+          api.get('/api/investments'),
         ]);
         const cashAssets = (assetsRes.data.assets||[]).filter(a=>a.category==='cash');
         const bankInv = (invRes.data.investments||[]).filter(i=>i.category==='bank_account');

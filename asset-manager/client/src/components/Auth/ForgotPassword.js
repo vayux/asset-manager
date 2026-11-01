@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import AuthCard from './AuthCard';
 
@@ -13,7 +13,7 @@ const ForgotPassword = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      await axios.post('/api/auth/forgot-password', { email });
+      await api.post('/api/auth/forgot-password', { email });
       setSent(true);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not send reset link');

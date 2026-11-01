@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import {
   CurrencyDollarIcon,
   ArrowTrendingUpIcon,
@@ -35,11 +35,11 @@ const Dashboard = () => {
     try {
       setLoading(true);
       const [portfolioResponse, investmentsResponse, monthlyResponse, assetsResponse, liabilitiesResponse] = await Promise.all([
-        axios.get(`/api/portfolio/overview?month=${monthFilter}`),
-        axios.get('/api/investments?limit=5'),
-        axios.get('/api/portfolio/analytics/monthly?limit=6'),
-        axios.get('/api/assets'),
-        axios.get('/api/liabilities')
+        api.get(`/api/portfolio/overview?month=${monthFilter}`),
+        api.get('/api/investments?limit=5'),
+        api.get('/api/portfolio/analytics/monthly?limit=6'),
+        api.get('/api/assets'),
+        api.get('/api/liabilities')
       ]);
 
       setPortfolioData(portfolioResponse.data);

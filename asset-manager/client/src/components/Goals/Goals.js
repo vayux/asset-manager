@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import { PlusIcon, TrashIcon, FunnelIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { format, addMonths } from 'date-fns';
@@ -25,7 +25,7 @@ const Goals = () => {
   const fetchGoals = async()=>{
     try{
       setLoading(true);
-      const res = await axios.get('/api/goals');
+      const res = await api.get('/api/goals');
       setGoals(res.data.goals || []);
     }catch(e){ console.error(e); toast.error('Failed to load goals'); }
     finally{ setLoading(false); }
@@ -37,9 +37,9 @@ const Goals = () => {
     const fetchTotals=async()=>{
       try{
         const [overviewRes, assetsRes, liabRes] = await Promise.all([
-          axios.get('/api/portfolio/overview'),
-          axios.get('/api/assets'),
-          axios.get('/api/liabilities'),
+          api.get('/api/portfolio/overview'),
+          api.get('/api/assets'),
+          api.get('/api/liabilities'),
         ]);
         const inv = overviewRes.data.totalValue||0;
         const ast = (assetsRes.data.assets||[]).reduce((s,a)=>s+parseFloat(a.currentValue||0),0);
@@ -53,7 +53,7 @@ const Goals = () => {
   useEffect(()=>{
     const fetchPortfolioTotal = async()=>{
       try{
-        const res = await axios.get('/api/portfolio/overview');
+        const res = await api.get('/api/portfolio/overview');
         const total = res.data.totalValue || 0;
         setForm(prev=>({...prev,currentAmount: total, scope:'investments' }));
       }catch(e){ console.error(e); }
@@ -74,9 +74,9 @@ const Goals = () => {
         monthlyContribution: parseFloat(form.monthlyContribution||0),
       };
       if(editId){
-        await axios.put(`/api/goals/${editId}`, payload);
+        await api.put(`/api/goals/${editId}`, payload);
       }else{
-        await axios.post('/api/goals', payload);
+        await api.post('/api/goals', payload);
       }
       toast.success(editId?'Goal updated':'Goal added');
       setShowAdd(false); setForm(defaultForm); setEditId(null);
@@ -107,7 +107,7 @@ const Goals = () => {
 
   const fetchProjection = async(id, contrib)=>{
     try{
-      const res = await axios.get(`/api/goals/${id}/projection?contribution=${contrib}`);
+      const res = await api.get(`/api/goals/${id}/projection?contribution=${contrib}`);
       setProjection(res.data.projection || []);
     }catch(e){ console.error(e); }
   };
@@ -137,7 +137,7 @@ const Goals = () => {
   const handleSaveContribution = async()=>{
     if(!selected) return;
     try{
-      await axios.put(`/api/goals/${selected.id}`, { monthlyContribution: slider });
+      await api.put(`/api/goals/${selected.id}`, { monthlyContribution: slider });
       setGoals(prev=>prev.map(g=>g.id===selected.id?{...g, monthlyContribution: slider}:g));
       toast.success('Monthly contribution updated');
       setSliderDirty(false);
@@ -147,7 +147,7 @@ const Goals = () => {
   const handleAdvancedSim = async()=>{
     if(!selected) return;
     try{
-      const res = await axios.get(`/api/goals/${selected.id}/projection/montecarlo?contribution=${slider}`);
+      const res = await api.get(`/api/goals/${selected.id}/projection/montecarlo?contribution=${slider}`);
       setAdv({percentiles: res.data.percentiles, success:res.data.successProbability});
     }catch(e){ console.error(e); toast.error('Simulation failed'); }
   };
@@ -156,7 +156,7 @@ const Goals = () => {
   const handleDelete=async(id)=>{
     if(!window.confirm('Delete this goal permanently?')) return;
     try{
-      await axios.delete(`/api/goals/${id}`);
+      await api.delete(`/api/goals/${id}`);
       setGoals(prev=>prev.filter(g=>g.id!==id));
       toast.success('Goal deleted');
     }catch(e){ console.error(e); toast.error('Delete failed'); }

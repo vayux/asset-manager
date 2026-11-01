@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { formatCurrency } from '../../utils/currency';
@@ -44,7 +44,7 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
     setLoading(true);
     try {
       if (isEdit) {
-        await axios.put(`/api/liabilities/${liability.id}`, {
+        await api.put(`/api/liabilities/${liability.id}`, {
           name: formData.name.trim(),
           category: formData.category,
           outstandingAmount: parseFloat(formData.outstandingAmount),
@@ -54,7 +54,7 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
         });
         toast.success('Liability updated');
       } else {
-        await axios.post('/api/liabilities', {
+        await api.post('/api/liabilities', {
           name: formData.name.trim(),
           category: formData.category,
           outstandingAmount: parseFloat(formData.outstandingAmount),
@@ -76,7 +76,7 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
   useEffect(() => {
     const loadAssets = async () => {
       try {
-        const res = await axios.get('/api/assets');
+        const res = await api.get('/api/assets');
         setAssetsList(res.data.assets || []);
       } catch (e) {
         console.error(e);
@@ -187,7 +187,7 @@ const Liabilities = () => {
   const fetchLiabilities = async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get('/api/liabilities');
+      const { data } = await api.get('/api/liabilities');
       setLiabilities(data.liabilities);
     } catch (error) {
       toast.error('Failed to fetch liabilities');
@@ -203,7 +203,7 @@ const Liabilities = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to archive this liability?')) return;
     try {
-      await axios.delete(`/api/liabilities/${id}`);
+      await api.delete(`/api/liabilities/${id}`);
       toast.success('Liability archived');
       fetchLiabilities();
     } catch (error) {
