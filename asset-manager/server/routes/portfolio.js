@@ -8,6 +8,7 @@ const { loadHoldings, startDate } = require('../services/valuation');
 const { toAmount, sumMoney } = require('../utils/money');
 const { lastMonths } = require('../utils/dates');
 const { yearsBetween, cagr, xirr } = require('../utils/returns');
+const { converterFor } = require('../services/fx');
 
 const router = express.Router();
 
@@ -23,7 +24,7 @@ router.get('/overview', [query('month').optional().matches(MONTH_REGEX).withMess
   const month = req.query.month || new Date().toISOString().slice(0, 7);
   const { investments, valueAt } = await loadHoldings(req.user.id);
   const held = investments
-    .map(inv => ({ ...inv, currentAmount: valueAt(inv, month) }))
+    .map(inv => ({ ...inv, currentAmount: valueAt(inv, month), nativeCurrency: inv.currency, currency: 'INR' }))
     .filter(inv => inv.currentAmount !== null);
 
   const totalValue = sumMoney(held, inv => inv.currentAmount);
@@ -87,13 +88,14 @@ router.get('/net-worth', validateLimit, async (req, res) => {
 // initial amount as money invested on its investment date and today's value as the end value
 router.get('/returns', async (req, res) => {
   const investments = await Investment.findAll({ where: { userId: req.user.id, isActive: true }, raw: true });
+  const convert = await converterFor(req.user.id, investments);
   const todayStr = new Date().toISOString().slice(0, 10);
   const round = (n) => (n === null ? null : Math.round(n * 10000) / 10000);
   const flows = [];
   const holdings = investments.map((inv) => {
     const start = startDate(inv);
-    const principal = toAmount(inv.initialAmount ?? inv.currentAmount);
-    const value = toAmount(inv.currentAmount);
+    const principal = convert(inv.initialAmount ?? inv.currentAmount, inv.currency);
+    const value = convert(inv.currentAmount, inv.currency);
     const years = yearsBetween(start, todayStr);
     flows.push({ amount: -principal, date: start });
     return {

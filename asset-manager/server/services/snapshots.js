@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const { bookValue } = require('../utils/depreciation');
 const { sumMoney } = require('../utils/money');
 const { today } = require('../utils/dates');
+const { converterFor } = require('./fx');
 
 const SCHEDULE_MS = 6 * 60 * 60 * 1000;
 
@@ -12,11 +13,12 @@ const buildSnapshot = async (userId) => {
     Asset.findAll({ where: { userId, isActive: true } }),
     Liability.findAll({ where: { userId, isActive: true } }),
   ]);
-  const totalValue = sumMoney(investments, inv => inv.currentAmount);
-  const totalAssets = sumMoney(assets, asset => bookValue(asset));
-  const totalLiabilities = sumMoney(liabilities, l => l.outstandingAmount);
+  const convert = await converterFor(userId, [...investments, ...assets, ...liabilities]);
+  const totalValue = sumMoney(investments, inv => convert(inv.currentAmount, inv.currency));
+  const totalAssets = sumMoney(assets, asset => convert(bookValue(asset), asset.currency));
+  const totalLiabilities = sumMoney(liabilities, l => convert(l.outstandingAmount, l.currency));
   const categoryBreakdown = investments.reduce((acc, inv) => {
-    acc[inv.category] = sumMoney([acc[inv.category], inv.currentAmount]);
+    acc[inv.category] = sumMoney([acc[inv.category], convert(inv.currentAmount, inv.currency)]);
     return acc;
   }, {});
   return {
@@ -31,7 +33,9 @@ const buildSnapshot = async (userId) => {
       name: inv.name,
       category: inv.category,
       subCategory: inv.subCategory,
-      amount: inv.currentAmount,
+      amount: convert(inv.currentAmount, inv.currency),
+      currency: inv.currency,
+      nativeAmount: inv.currentAmount,
       institutionName: inv.institutionName,
     })),
   };

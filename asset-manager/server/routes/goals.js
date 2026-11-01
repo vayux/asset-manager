@@ -6,6 +6,7 @@ const { handleValidation } = require('../middleware/validate');
 const pick = require('../utils/pick');
 const { toAmount, sumMoney } = require('../utils/money');
 const { bookValue } = require('../utils/depreciation');
+const { converterFor } = require('../services/fx');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -111,9 +112,10 @@ router.get('/:id/projection/montecarlo', [ param('id').isUUID(), query('contribu
         Asset.findAll({ where: { userId: req.user.id, isActive: true } }),
         Liability.findAll({ where: { userId: req.user.id, isActive: true } }),
       ]);
-      baseAmount = sumMoney(investments, i => i.currentAmount)
-        + sumMoney(assets, a => bookValue(a))
-        - sumMoney(liabilities, l => l.outstandingAmount);
+      const convert = await converterFor(req.user.id, [...investments, ...assets, ...liabilities]);
+      baseAmount = sumMoney(investments, i => convert(i.currentAmount, i.currency))
+        + sumMoney(assets, a => convert(bookValue(a), a.currency))
+        - sumMoney(liabilities, l => convert(l.outstandingAmount, l.currency));
     } catch (err) {
       console.error('Net-worth base amount calc error:', err);
     }

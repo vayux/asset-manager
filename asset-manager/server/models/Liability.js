@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
 const { sequelize } = require('../config/database');
 const { LIABILITY_TYPES } = require('../constants/categories');
 
@@ -57,6 +58,12 @@ const Liability = sequelize.define('Liability', {
       model: 'assets',
       key: 'id',
     },
+  },
+  currency: {
+    type: DataTypes.STRING(3),
+    allowNull: false,
+    defaultValue: 'INR',
+    validate: { isIn: [SUPPORTED_CURRENCIES] },
   },
   isActive: {
     type: DataTypes.BOOLEAN,

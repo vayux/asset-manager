@@ -12,6 +12,8 @@ const {
   INVESTMENT_CATEGORIES, RETIRED_INVESTMENT_CATEGORIES, ACTIVE_INVESTMENT_CATEGORIES, RETIRED_MESSAGES, categoryCheck,
 } = require('../constants/categories');
 const { getMonthRange } = require('../utils/dates');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
+const { converterFor } = require('../services/fx');
 
 const router = express.Router();
 
@@ -30,6 +32,7 @@ const INVESTMENT_FIELDS = [
   'institutionName',
   'description',
   'investmentDate',
+  'currency',
 ];
 
 // Get investment summary by category
@@ -97,7 +100,13 @@ router.get('/', [
       include,
     });
 
-    res.json({ investments });
+    const convert = await converterFor(req.user.id, investments);
+    res.json({
+      investments: investments.map((inv) => {
+        const plain = inv.get({ plain: true });
+        return { ...plain, amountInr: convert(plain.currentAmount, plain.currency) };
+      }),
+    });
   } catch (error) {
     console.error('Fetch investments error:', error);
     res.status(500).json({ message: 'Failed to fetch investments' });
@@ -139,6 +148,7 @@ router.get('/:id', [
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Investment name is required'),
   body('category').custom(categoryCheck(INVESTMENT_CATEGORIES, RETIRED_INVESTMENT_CATEGORIES)),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('currentAmount').isFloat({ min: 0 }).withMessage('Current amount must be a positive number'),
   body('initialAmount').optional().isFloat({ min: 0 }),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -194,6 +204,7 @@ router.put('/:id', [
   param('id').isUUID().withMessage('Invalid investment ID'),
   body('name').optional().notEmpty().trim(),
   body('category').optional().isIn(INVESTMENT_CATEGORIES),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('currentAmount').optional().isFloat({ min: 0 }),
   body('initialAmount').optional().isFloat({ min: 0 }),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -351,6 +362,7 @@ router.post('/bulk', [
   body().isArray({min:1}).withMessage('Array required'),
   body('*.name').notEmpty(),
   body('*.category').optional().isIn(ACTIVE_INVESTMENT_CATEGORIES),
+  body('*.currency').optional().isIn(SUPPORTED_CURRENCIES),
   body('*.currentAmount').isFloat({min:0}),
   body('*.investmentDate').optional().isISO8601(),
 ], async (req,res)=>{

@@ -1,6 +1,6 @@
 const { Investment, InvestmentHistory } = require('../models');
-const { toAmount } = require('../utils/money');
 const { currentMonth, monthEnd } = require('../utils/dates');
+const { converterFor } = require('./fx');
 
 const startDate = (inv) => String(inv.investmentDate || new Date(inv.createdAt).toISOString()).slice(0, 10);
 
@@ -18,13 +18,15 @@ const loadHoldings = async (userId) => {
   const byInvestment = {};
   histories.forEach((h) => { (byInvestment[h.investmentId] = byInvestment[h.investmentId] || []).push(h); });
   const thisMonth = currentMonth();
+  // Past valuations are converted at today's rate
+  const convert = await converterFor(userId, investments);
 
   const valueAt = (inv, month) => {
     const end = monthEnd(month);
     if (startDate(inv) > end) return null;
-    if (month >= thisMonth) return toAmount(inv.currentAmount);
+    if (month >= thisMonth) return convert(inv.currentAmount, inv.currency);
     const known = (byInvestment[inv.id] || []).filter(h => String(h.valuationDate) <= end).pop();
-    return toAmount(known ? known.amount : (inv.initialAmount ?? inv.currentAmount));
+    return convert(known ? known.amount : (inv.initialAmount ?? inv.currentAmount), inv.currency);
   };
   return { investments, valueAt };
 };

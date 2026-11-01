@@ -4,12 +4,14 @@ const { Liability, Asset } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const pick = require('../utils/pick');
 const { LIABILITY_TYPES } = require('../constants/categories');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
+const { converterFor } = require('../services/fx');
 
 const router = express.Router();
 
 router.use(authMiddleware);
 
-const LIABILITY_FIELDS = ['name', 'category', 'outstandingAmount', 'interestRate', 'dueDate', 'description', 'assetId'];
+const LIABILITY_FIELDS = ['name', 'category', 'outstandingAmount', 'interestRate', 'dueDate', 'description', 'assetId', 'currency'];
 
 const assetBelongsToUser = async (assetId, userId) => {
   if (!assetId) return true;
@@ -26,7 +28,13 @@ router.get('/', async (req, res) => {
       where.isActive = active === 'true';
     }
     const liabilities = await Liability.findAll({ where, order: [['createdAt', 'DESC']] });
-    res.json({ liabilities });
+    const convert = await converterFor(req.user.id, liabilities);
+    res.json({
+      liabilities: liabilities.map((l) => {
+        const plain = l.get({ plain: true });
+        return { ...plain, outstandingInr: convert(plain.outstandingAmount, plain.currency) };
+      }),
+    });
   } catch (err) {
     console.error('Fetch liabilities error:', err);
     res.status(500).json({ message: 'Failed to fetch liabilities' });
@@ -37,6 +45,7 @@ router.get('/', async (req, res) => {
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Liability name is required'),
   body('category').isIn(LIABILITY_TYPES).withMessage('Invalid category'),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('outstandingAmount').isFloat({ min: 0 }).withMessage('Outstanding amount must be positive'),
   body('assetId').optional({ values: 'null' }).isUUID().withMessage('Invalid asset ID'),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -64,6 +73,7 @@ router.put('/:id', [
   param('id').isUUID().withMessage('Invalid liability ID'),
   body('name').optional().notEmpty().trim(),
   body('category').optional().isIn(LIABILITY_TYPES),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('outstandingAmount').optional().isFloat({ min: 0 }),
   body('assetId').optional({ values: 'null' }).isUUID().withMessage('Invalid asset ID'),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),

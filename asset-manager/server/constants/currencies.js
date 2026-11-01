@@ -1,0 +1,4 @@
+const BASE_CURRENCY = 'INR';
+const SUPPORTED_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY', 'AUD', 'CAD', 'CHF'];
+
+module.exports = { BASE_CURRENCY, SUPPORTED_CURRENCIES };

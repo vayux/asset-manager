@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
 const { sequelize } = require('../config/database');
 const { ASSET_CATEGORIES } = require('../constants/categories');
 
@@ -54,6 +55,12 @@ const Asset = sequelize.define('Asset', {
   description: {
     type: DataTypes.TEXT,
     allowNull: true,
+  },
+  currency: {
+    type: DataTypes.STRING(3),
+    allowNull: false,
+    defaultValue: 'INR',
+    validate: { isIn: [SUPPORTED_CURRENCIES] },
   },
   isActive: {
     type: DataTypes.BOOLEAN,

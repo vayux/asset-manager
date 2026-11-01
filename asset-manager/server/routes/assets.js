@@ -7,6 +7,8 @@ const { handleValidation } = require('../middleware/validate');
 const pick = require('../utils/pick');
 const { bookValue } = require('../utils/depreciation');
 const { toAmount } = require('../utils/money');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
+const { converterFor } = require('../services/fx');
 const { ASSET_CATEGORIES, RETIRED_ASSET_CATEGORIES, RETIRED_MESSAGES, categoryCheck } = require('../constants/categories');
 
 const router = express.Router();
@@ -14,7 +16,7 @@ const router = express.Router();
 // All routes require authentication
 router.use(authMiddleware);
 
-const ASSET_FIELDS = ['name', 'category', 'currentValue', 'purchaseDate', 'depreciationRate', 'description'];
+const ASSET_FIELDS = ['name', 'category', 'currentValue', 'purchaseDate', 'depreciationRate', 'description', 'currency'];
 
 // GET /api/assets - list assets (optional active param)
 router.get('/', async (req, res) => {
@@ -27,6 +29,7 @@ router.get('/', async (req, res) => {
     const assets = await Asset.findAll({ where, order: [['createdAt', 'DESC']] });
 
     const now = new Date();
+    const convert = await converterFor(req.user.id, assets);
     const transformed = assets.map((a) => {
       const plain = a.get({ plain: true });
       const computed = bookValue(plain, now);
@@ -35,6 +38,7 @@ router.get('/', async (req, res) => {
         plain.currentValue = computed;
       }
       plain.bookValue = computed;
+      plain.valueInr = convert(computed, plain.currency);
       return plain;
     });
 
@@ -49,6 +53,7 @@ router.get('/', async (req, res) => {
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Asset name is required'),
   body('category').custom(categoryCheck(ASSET_CATEGORIES, RETIRED_ASSET_CATEGORIES)),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('currentValue').isFloat({ min: 0 }).withMessage('Current value must be positive'),
   body('purchaseDate').optional().isISO8601().toDate(),
   body('depreciationRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Depreciation rate must be between 0 and 100'),
@@ -71,6 +76,7 @@ router.put('/:id', [
   param('id').isUUID().withMessage('Invalid asset ID'),
   body('name').optional().notEmpty().trim(),
   body('category').optional().isIn(ASSET_CATEGORIES).withMessage('Invalid category'),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('currentValue').optional().isFloat({ min: 0 }),
   body('purchaseDate').optional().isISO8601().toDate(),
   body('depreciationRate').optional().isFloat({ min: 0, max: 100 }),

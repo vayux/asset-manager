@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('express-validator');
 const { Asset, Liability, Investment, Income, BudgetEntry, BudgetCategory, Goal } = require('../models');
 const { bookValue } = require('../utils/depreciation');
+const { converterFor } = require('../services/fx');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const { Op } = require('sequelize');
@@ -30,22 +31,23 @@ router.get('/health', validateMonth, async (req, res) => {
   const userId = req.user.id;
   const month = req.query.month || currentMonth();
 
-  const [assets, liabilitiesSum, investments, incomes, spent] = await Promise.all([
+  const [assets, liabilities, investments, incomes, spent] = await Promise.all([
     Asset.findAll({ where: { userId, isActive: true } }),
-    Liability.sum('outstandingAmount', { where: { userId, isActive: true } }),
+    Liability.findAll({ where: { userId, isActive: true } }),
     Investment.findAll({ where: { userId, isActive: true } }),
     Income.findAll({ where: { userId } }),
     BudgetEntry.sum('spentAmount', { where: { userId, month: `${month}-01` } }),
   ]);
 
   const now = new Date();
-  const assetValue = (a) => bookValue(a, now);
-  const invValue = (i) => toAmount(i.currentAmount);
+  const convert = await converterFor(userId, [...assets, ...liabilities, ...investments]);
+  const assetValue = (a) => convert(bookValue(a, now), a.currency);
+  const invValue = (i) => convert(i.currentAmount, i.currency);
 
   const totalAssetValue = sumBy(assets, assetValue);
   const totalInvValue = sumBy(investments, invValue);
   const totalAssets = totalAssetValue + totalInvValue;
-  const totalLiabilities = toAmount(liabilitiesSum);
+  const totalLiabilities = sumMoney(liabilities, l => convert(l.outstandingAmount, l.currency));
   const netWorth = totalAssets - totalLiabilities;
   const debtRatio = totalAssets > 0 ? totalLiabilities / totalAssets : (totalLiabilities > 0 ? 1 : 0);
 
