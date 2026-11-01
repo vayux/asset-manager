@@ -7,7 +7,7 @@ const { handleValidation } = require('../middleware/validate');
 const pick = require('../utils/pick');
 const { bookValue } = require('../utils/depreciation');
 const { toAmount } = require('../utils/money');
-const { ASSET_CATEGORIES } = require('../constants/categories');
+const { ASSET_CATEGORIES, RETIRED_ASSET_CATEGORIES, RETIRED_MESSAGES, categoryCheck } = require('../constants/categories');
 
 const router = express.Router();
 
@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
 // POST /api/assets - create asset
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Asset name is required'),
-  body('category').isIn(ASSET_CATEGORIES).withMessage('Invalid category'),
+  body('category').custom(categoryCheck(ASSET_CATEGORIES, RETIRED_ASSET_CATEGORIES)),
   body('currentValue').isFloat({ min: 0 }).withMessage('Current value must be positive'),
   body('purchaseDate').optional().isISO8601().toDate(),
   body('depreciationRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Depreciation rate must be between 0 and 100'),
@@ -82,6 +82,10 @@ router.put('/:id', [
   try {
     const asset = await Asset.findOne({ where: { id: req.params.id, userId: req.user.id } });
     if (!asset) return res.status(404).json({ message: 'Asset not found' });
+    const nextCategory = req.body.category;
+    if (nextCategory && nextCategory !== asset.category && RETIRED_ASSET_CATEGORIES.includes(nextCategory)) {
+      return res.status(400).json({ message: RETIRED_MESSAGES[nextCategory] });
+    }
 
     await asset.update(pick(req.body, ASSET_FIELDS));
     res.json({ message: 'Asset updated', asset });

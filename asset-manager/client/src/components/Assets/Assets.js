@@ -10,6 +10,8 @@ const categoryOptions = [
   { value: 'vehicle', label: 'Vehicle' },
   { value: 'business', label: 'Business' },
   { value: 'collectible', label: 'Collectible' },
+  { value: 'gadgets', label: 'Gadgets' },
+  { value: 'stocks', label: 'Stocks', retired: true },
   { value: 'other', label: 'Other' },
 ];
 
@@ -106,7 +108,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
               value={formData.category}
               onChange={handleChange}
             >
-              {categoryOptions.map((opt) => (
+              {categoryOptions.filter((opt) => !opt.retired || opt.value === asset?.category).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

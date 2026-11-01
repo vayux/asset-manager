@@ -14,7 +14,7 @@ export const categoryOptions = [
   { value: 'gold', label: 'Gold' },
   { value: 'real_estate', label: 'Real Estate' },
   { value: 'crypto', label: 'Cryptocurrency' },
-  { value: 'personal_loan', label: 'Personal Loan' },
+  { value: 'personal_loan', label: 'Personal Loan', retired: true },
   { value: 'other', label: 'Other' },
 ];
 
@@ -187,7 +187,7 @@ const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, ex
               value={formData.category}
               onChange={handleChange}
             >
-              {categoryOptions.map((opt) => (
+              {categoryOptions.filter((opt) => !opt.retired || opt.value === investment.category).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
