@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { formatCurrency } from '../../utils/currency';
+import { formatCurrency, formatWithInr } from '../../utils/currency';
+import CurrencySelect from '../common/CurrencySelect';
+import Attachments from '../common/Attachments';
 
 const categoryOptions = [
   { value: 'cash', label: 'Cash' },
@@ -10,6 +12,8 @@ const categoryOptions = [
   { value: 'vehicle', label: 'Vehicle' },
   { value: 'business', label: 'Business' },
   { value: 'collectible', label: 'Collectible' },
+  { value: 'gadgets', label: 'Gadgets' },
+  { value: 'stocks', label: 'Stocks', retired: true },
   { value: 'other', label: 'Other' },
 ];
 
@@ -19,6 +23,7 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
     name: asset?.name || '',
     category: asset?.category || 'cash',
+    currency: asset?.currency || 'INR',
     currentValue: asset?.originalValue ?? asset?.currentValue ?? '',
     purchaseDate: asset?.purchaseDate || '',
     depreciationRate: asset?.depreciationRate || '',
@@ -47,18 +52,20 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
     setLoading(true);
     try {
       if (isEdit) {
-        await axios.put(`/api/assets/${asset.id}`, {
+        await api.put(`/api/assets/${asset.id}`, {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           currentValue: parseFloat(formData.currentValue),
           purchaseDate: formData.purchaseDate || undefined,
           depreciationRate: formData.depreciationRate ? parseFloat(formData.depreciationRate) : undefined,
         });
         toast.success('Asset updated');
       } else {
-        await axios.post('/api/assets', {
+        await api.post('/api/assets', {
           name: formData.name.trim(),
           category: formData.category,
+          currency: formData.currency,
           currentValue: parseFloat(formData.currentValue),
           purchaseDate: formData.purchaseDate || undefined,
           depreciationRate: formData.depreciationRate ? parseFloat(formData.depreciationRate) : undefined,
@@ -106,12 +113,16 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
               value={formData.category}
               onChange={handleChange}
             >
-              {categoryOptions.map((opt) => (
+              {categoryOptions.filter((opt) => !opt.retired || opt.value === asset?.category).map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label htmlFor="currency" className="form-label">Currency</label>
+            <CurrencySelect value={formData.currency} onChange={handleChange} />
           </div>
           <div>
             <label className="form-label">Current Value (INR)</label>
@@ -157,6 +168,11 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
             {isEdit ? 'Update' : 'Add'} Asset
           </button>
         </form>
+        {isEdit && asset?.id && (
+          <div className="mt-6 border-t pt-4">
+            <Attachments entityType="asset" entityId={asset.id} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -171,7 +187,7 @@ const Assets = () => {
   const fetchAssets = async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get('/api/assets');
+      const { data } = await api.get('/api/assets');
       setAssets(data.assets);
     } catch (error) {
       toast.error('Failed to fetch assets');
@@ -187,7 +203,7 @@ const Assets = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to archive this asset?')) return;
     try {
-      await axios.delete(`/api/assets/${id}`);
+      await api.delete(`/api/assets/${id}`);
       toast.success('Asset archived');
       fetchAssets();
     } catch (error) {
@@ -228,8 +244,8 @@ const Assets = () => {
                 <tr key={asset.id}>
                   <td className="px-6 py-4 whitespace-nowrap">{asset.name}</td>
                   <td className="px-6 py-4 whitespace-nowrap capitalize">{asset.category.replace('_', ' ')}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(asset.originalValue ?? asset.bookValue)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(asset.bookValue)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatCurrency(asset.originalValue ?? asset.bookValue, asset.currency)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">{formatWithInr(asset.bookValue, asset.currency, asset.valueInr)}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right space-x-2">
                     <button
                       onClick={() => { setEditAsset(asset); setShowForm(true); }}

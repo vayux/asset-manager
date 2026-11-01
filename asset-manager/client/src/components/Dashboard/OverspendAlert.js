@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../../api/client';
 import { format } from 'date-fns';
 
 const OverspendAlert = () => {
@@ -10,8 +10,8 @@ const OverspendAlert = () => {
     const fetchData = async () => {
       try {
         const [{ data: catData }, { data: entryData }] = await Promise.all([
-          axios.get('/api/budget/categories'),
-          axios.get(`/api/budget/entries?month=${month}`),
+          api.get('/api/budget/categories'),
+          api.get(`/api/budget/entries?month=${month}`),
         ]);
         const catMap = {};
         (catData.categories || []).forEach((c) => {

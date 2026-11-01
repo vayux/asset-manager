@@ -1,15 +1,15 @@
 // Utility helpers to export data as CSV or PDF
 // To use: import { exportToCSV, exportToPDF } from '../utils/exportUtils';
 
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export const exportToCSV = (dataArray = [], columns = [], filename = 'export.csv') => {
   if (!dataArray.length) return;
-  const header = columns.map(c => c.label || c.key);
+  const header = columns.map((c) => c.label || c.key);
   const csvRows = [header.join(',')];
-  dataArray.forEach(item => {
-    const row = columns.map(col => {
+  dataArray.forEach((item) => {
+    const row = columns.map((col) => {
       const raw = item[col.key] ?? '';
       const cell = typeof raw === 'string' ? raw.replace(/"/g, '""') : raw;
       return `"${cell}"`;
@@ -37,13 +37,7 @@ export const exportToCSV = (dataArray = [], columns = [], filename = 'export.csv
  *    summary: { label: value }
  *    images: [{ src, width, height }] base64 PNGs e.g. from html2canvas
  */
-export const exportToPDF = (
-  dataArray = [],
-  columns = [],
-  filename = 'export.pdf',
-  title = 'Export',
-  options = {}
-) => {
+export const exportToPDF = (dataArray = [], columns = [], filename = 'export.pdf', title = 'Export', options = {}) => {
   if (!dataArray.length) return;
   const doc = new jsPDF({ orientation: 'landscape' });
 
@@ -64,8 +58,8 @@ export const exportToPDF = (
   }
 
   // Table
-  const tableColumn = columns.map(c => c.label || c.key);
-  const tableRows = dataArray.map(item => columns.map(col => item[col.key] ?? ''));
+  const tableColumn = columns.map((c) => c.label || c.key);
+  const tableRows = dataArray.map((item) => columns.map((col) => item[col.key] ?? ''));
   autoTable(doc, {
     startY: currentY,
     head: [tableColumn],
@@ -92,8 +86,12 @@ export const exportToPDF = (
   doc.setFontSize(8);
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() - 40, doc.internal.pageSize.getHeight() - 10);
+    doc.text(
+      `Page ${i} of ${pageCount}`,
+      doc.internal.pageSize.getWidth() - 40,
+      doc.internal.pageSize.getHeight() - 10,
+    );
   }
 
   doc.save(filename);
-}; 
+};

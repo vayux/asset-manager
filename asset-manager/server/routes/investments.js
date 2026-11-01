@@ -8,26 +8,17 @@ const { format } = require('date-fns');
 const { sendInvestmentUpdate } = require('../utils/emailService');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const pick = require('../utils/pick');
+const {
+  INVESTMENT_CATEGORIES, RETIRED_INVESTMENT_CATEGORIES, ACTIVE_INVESTMENT_CATEGORIES, RETIRED_MESSAGES, categoryCheck,
+} = require('../constants/categories');
+const { getMonthRange } = require('../utils/dates');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
+const { converterFor } = require('../services/fx');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authMiddleware);
-
-const INVESTMENT_CATEGORIES = [
-  'bank_account',
-  'fixed_deposit',
-  'recurring_deposit',
-  'stocks',
-  'mutual_funds',
-  'provident_fund',
-  'insurance',
-  'gold',
-  'real_estate',
-  'crypto',
-  'personal_loan',
-  'other',
-];
 
 const INVESTMENT_FIELDS = [
   'name',
@@ -41,15 +32,8 @@ const INVESTMENT_FIELDS = [
   'institutionName',
   'description',
   'investmentDate',
+  'currency',
 ];
-
-// helper
-const getMonthRange = (monthStr) => {
-  const [year, month] = monthStr.split('-').map(Number);
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
-  return { start, end };
-};
 
 // Get investment summary by category
 router.get('/summary/category', async (req, res) => {
@@ -116,7 +100,13 @@ router.get('/', [
       include,
     });
 
-    res.json({ investments });
+    const convert = await converterFor(req.user.id, investments);
+    res.json({
+      investments: investments.map((inv) => {
+        const plain = inv.get({ plain: true });
+        return { ...plain, amountInr: convert(plain.currentAmount, plain.currency) };
+      }),
+    });
   } catch (error) {
     console.error('Fetch investments error:', error);
     res.status(500).json({ message: 'Failed to fetch investments' });
@@ -157,7 +147,8 @@ router.get('/:id', [
 // Create new investment
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Investment name is required'),
-  body('category').isIn(INVESTMENT_CATEGORIES).withMessage('Invalid category'),
+  body('category').custom(categoryCheck(INVESTMENT_CATEGORIES, RETIRED_INVESTMENT_CATEGORIES)),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('currentAmount').isFloat({ min: 0 }).withMessage('Current amount must be a positive number'),
   body('initialAmount').optional().isFloat({ min: 0 }),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -213,6 +204,7 @@ router.put('/:id', [
   param('id').isUUID().withMessage('Invalid investment ID'),
   body('name').optional().notEmpty().trim(),
   body('category').optional().isIn(INVESTMENT_CATEGORIES),
+  body('currency').optional().isIn(SUPPORTED_CURRENCIES).withMessage('Unsupported currency'),
   body('currentAmount').optional().isFloat({ min: 0 }),
   body('initialAmount').optional().isFloat({ min: 0 }),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -237,6 +229,10 @@ router.put('/:id', [
 
     if (!investment) {
       return res.status(404).json({ message: 'Investment not found' });
+    }
+    const nextCategory = req.body.category;
+    if (nextCategory && nextCategory !== investment.category && RETIRED_INVESTMENT_CATEGORIES.includes(nextCategory)) {
+      return res.status(400).json({ message: RETIRED_MESSAGES[nextCategory] });
     }
 
     const prevAmount = investment.currentAmount;
@@ -365,7 +361,8 @@ router.get('/:id/history', [param('id').isUUID()], async (req,res)=>{
 router.post('/bulk', [
   body().isArray({min:1}).withMessage('Array required'),
   body('*.name').notEmpty(),
-  body('*.category').optional().isIn(INVESTMENT_CATEGORIES),
+  body('*.category').optional().isIn(ACTIVE_INVESTMENT_CATEGORIES),
+  body('*.currency').optional().isIn(SUPPORTED_CURRENCIES),
   body('*.currentAmount').isFloat({min:0}),
   body('*.investmentDate').optional().isISO8601(),
 ], async (req,res)=>{
@@ -414,7 +411,8 @@ router.post('/import', express.text({ type: ['text/csv', 'text/plain'], limit: '
     const raw = Object.fromEntries(columns.map((c, i) => [c, (cells[i] || '').trim()]));
     if (!raw.name) errors.push({ row: rowNo, message: 'name is required' });
     const category = raw.category || 'other';
-    if (!INVESTMENT_CATEGORIES.includes(category)) errors.push({ row: rowNo, message: `unknown category "${category}"` });
+    if (RETIRED_INVESTMENT_CATEGORIES.includes(category)) errors.push({ row: rowNo, message: RETIRED_MESSAGES[category] });
+    else if (!INVESTMENT_CATEGORIES.includes(category)) errors.push({ row: rowNo, message: `unknown category "${category}"` });
     if (raw.investmentDate && (!DATE_RE.test(raw.investmentDate) || Number.isNaN(Date.parse(raw.investmentDate)))) {
       errors.push({ row: rowNo, message: 'investmentDate must be YYYY-MM-DD' });
     }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -30,7 +30,7 @@ const Layout = ({ children }) => {
   const { user, logout } = useAuth();
   const resendVerification = async () => {
     try {
-      const { data } = await axios.post('/api/auth/resend-verification');
+      const { data } = await api.post('/api/auth/resend-verification');
       toast.success(data.message);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not send verification email');

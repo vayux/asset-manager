@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import {
   CurrencyDollarIcon,
   ArrowTrendingUpIcon,
@@ -35,11 +35,11 @@ const Dashboard = () => {
     try {
       setLoading(true);
       const [portfolioResponse, investmentsResponse, monthlyResponse, assetsResponse, liabilitiesResponse] = await Promise.all([
-        axios.get(`/api/portfolio/overview?month=${monthFilter}`),
-        axios.get('/api/investments?limit=5'),
-        axios.get('/api/portfolio/analytics/monthly?limit=6'),
-        axios.get('/api/assets'),
-        axios.get('/api/liabilities')
+        api.get(`/api/portfolio/overview?month=${monthFilter}`),
+        api.get('/api/investments?limit=5'),
+        api.get('/api/portfolio/analytics/monthly?limit=6'),
+        api.get('/api/assets'),
+        api.get('/api/liabilities')
       ]);
 
       setPortfolioData(portfolioResponse.data);
@@ -60,8 +60,8 @@ const Dashboard = () => {
       // compute totals for assets/liabilities
       const assetsArr = assetsResponse.data.assets || [];
       const liabilitiesArr = liabilitiesResponse.data.liabilities || [];
-      const assetsSum = assetsArr.reduce((sum,a)=>sum+parseFloat(a.currentValue||0),0);
-      const liabilitiesSum = liabilitiesArr.reduce((sum,l)=>sum+parseFloat(l.outstandingAmount||0),0);
+      const assetsSum = assetsArr.reduce((sum,a)=>sum+parseFloat(a.valueInr ?? a.currentValue ?? 0),0);
+      const liabilitiesSum = liabilitiesArr.reduce((sum,l)=>sum+parseFloat(l.outstandingInr ?? l.outstandingAmount ?? 0),0);
       setAssetsTotal(assetsSum);
       setLiabilitiesTotal(liabilitiesSum);
     } catch (error) {

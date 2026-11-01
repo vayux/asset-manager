@@ -1,10 +1,14 @@
 const express = require('express');
 const { body, query } = require('express-validator');
-const { Investment, InvestmentHistory, PortfolioSnapshot } = require('../models');
+const { Investment, PortfolioSnapshot } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
-const { createSnapshot } = require('../utils/snapshots');
+const { createSnapshot } = require('../services/snapshots');
+const { loadHoldings, startDate } = require('../services/valuation');
+const { toAmount, sumMoney } = require('../utils/money');
+const { lastMonths } = require('../utils/dates');
 const { yearsBetween, cagr, xirr } = require('../utils/returns');
+const { converterFor } = require('../services/fx');
 
 const router = express.Router();
 
@@ -14,59 +18,20 @@ router.use(authMiddleware);
 const validateLimit = [query('limit').optional().isInt({ min: 1, max: 120 }).toInt(), handleValidation];
 
 
-const monthEnd = (month) => {
-  const [y, m] = month.split('-').map(Number);
-  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-};
-
-const lastMonths = (limit) => {
-  const now = new Date();
-  return Array.from({ length: limit }, (_, k) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (limit - 1 - k), 1))
-    .toISOString().slice(0, 7));
-};
-
-const startDate = (inv) => String(inv.investmentDate || new Date(inv.createdAt).toISOString()).slice(0, 10);
-
-// Loads active holdings with their valuation history. valueAt(inv, month) is the holding's month-end value:
-// null before it was bought, today's value for the current month, otherwise the latest valuation on or
-// before that month end (its initial amount before the first valuation).
-const loadHoldings = async (userId) => {
-  const investments = await Investment.findAll({ where: { userId, isActive: true }, raw: true });
-  const histories = investments.length ? await InvestmentHistory.findAll({
-    where: { investmentId: investments.map(inv => inv.id) },
-    attributes: ['investmentId', 'valuationDate', 'amount'],
-    order: [['valuationDate', 'ASC']],
-    raw: true,
-  }) : [];
-  const byInvestment = {};
-  histories.forEach((h) => { (byInvestment[h.investmentId] = byInvestment[h.investmentId] || []).push(h); });
-  const currentMonth = new Date().toISOString().slice(0, 7);
-
-  const valueAt = (inv, month) => {
-    const end = monthEnd(month);
-    if (startDate(inv) > end) return null;
-    if (month >= currentMonth) return parseFloat(inv.currentAmount || 0);
-    const known = (byInvestment[inv.id] || []).filter(h => String(h.valuationDate) <= end).pop();
-    return parseFloat((known ? known.amount : (inv.initialAmount ?? inv.currentAmount)) || 0);
-  };
-  return { investments, valueAt };
-};
-
-const round2 = (n) => parseFloat(n.toFixed(2));
 
 // Holdings and values as of a month end (default: today)
 router.get('/overview', [query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'), handleValidation], async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
   const { investments, valueAt } = await loadHoldings(req.user.id);
   const held = investments
-    .map(inv => ({ ...inv, currentAmount: valueAt(inv, month) }))
+    .map(inv => ({ ...inv, currentAmount: valueAt(inv, month), nativeCurrency: inv.currency, currency: 'INR' }))
     .filter(inv => inv.currentAmount !== null);
 
-  const totalValue = round2(held.reduce((sum, inv) => sum + inv.currentAmount, 0));
+  const totalValue = sumMoney(held, inv => inv.currentAmount);
   const categoryBreakdown = held.reduce((acc, inv) => {
     acc[inv.category] = acc[inv.category] || { count: 0, totalAmount: 0 };
     acc[inv.category].count += 1;
-    acc[inv.category].totalAmount = round2(acc[inv.category].totalAmount + inv.currentAmount);
+    acc[inv.category].totalAmount = sumMoney([acc[inv.category].totalAmount, inv.currentAmount]);
     return acc;
   }, {});
 
@@ -78,7 +43,7 @@ router.get('/analytics/monthly', validateLimit, async (req, res) => {
   const { investments, valueAt } = await loadHoldings(req.user.id);
   const data = lastMonths(req.query.limit || 12).map(month => ({
     month,
-    total: round2(investments.reduce((sum, inv) => sum + (valueAt(inv, month) || 0), 0)),
+    total: sumMoney(investments, inv => valueAt(inv, month)),
   }));
   res.json({ data });
 });
@@ -91,9 +56,9 @@ router.get('/analytics/stacked', validateLimit, async (req, res) => {
     const byCategory = {};
     investments.forEach((inv) => {
       const value = valueAt(inv, month);
-      if (value !== null) byCategory[inv.category] = (byCategory[inv.category] || 0) + value;
+      if (value !== null) (byCategory[inv.category] = byCategory[inv.category] || []).push(value);
     });
-    Object.entries(byCategory).forEach(([category, total]) => rows.push({ month, category, total: round2(total) }));
+    Object.entries(byCategory).forEach(([category, total]) => rows.push({ month, category, total: sumMoney(total) }));
   });
   res.json({ data: rows });
 });
@@ -110,10 +75,10 @@ router.get('/net-worth', validateLimit, async (req, res) => {
   res.json({
     data: rows.reverse().map(r => ({
       date: r.snapshotDate,
-      investments: parseFloat(r.totalValue),
-      assets: parseFloat(r.totalAssets),
-      liabilities: parseFloat(r.totalLiabilities),
-      netWorth: parseFloat(r.netWorth),
+      investments: toAmount(r.totalValue),
+      assets: toAmount(r.totalAssets),
+      liabilities: toAmount(r.totalLiabilities),
+      netWorth: toAmount(r.netWorth),
       isManual: r.isManual,
     })),
   });
@@ -123,18 +88,15 @@ router.get('/net-worth', validateLimit, async (req, res) => {
 // initial amount as money invested on its investment date and today's value as the end value
 router.get('/returns', async (req, res) => {
   const investments = await Investment.findAll({ where: { userId: req.user.id, isActive: true }, raw: true });
+  const convert = await converterFor(req.user.id, investments);
   const todayStr = new Date().toISOString().slice(0, 10);
   const round = (n) => (n === null ? null : Math.round(n * 10000) / 10000);
   const flows = [];
-  let invested = 0;
-  let current = 0;
   const holdings = investments.map((inv) => {
-    const start = String(inv.investmentDate || new Date(inv.createdAt).toISOString()).slice(0, 10);
-    const principal = parseFloat(inv.initialAmount ?? inv.currentAmount);
-    const value = parseFloat(inv.currentAmount);
+    const start = startDate(inv);
+    const principal = convert(inv.initialAmount ?? inv.currentAmount, inv.currency);
+    const value = convert(inv.currentAmount, inv.currency);
     const years = yearsBetween(start, todayStr);
-    invested += principal;
-    current += value;
     flows.push({ amount: -principal, date: start });
     return {
       id: inv.id,
@@ -147,12 +109,14 @@ router.get('/returns', async (req, res) => {
       cagr: years >= 1 / 12 ? round(cagr(principal, value, years)) : null,
     };
   });
+  const invested = sumMoney(holdings, h => h.invested);
+  const current = sumMoney(holdings, h => h.current);
   flows.push({ amount: current, date: todayStr });
   res.json({
     investments: holdings,
     portfolio: {
-      invested: Math.round(invested * 100) / 100,
-      current: Math.round(current * 100) / 100,
+      invested,
+      current,
       absoluteReturn: invested > 0 ? round(current / invested - 1) : null,
       xirr: investments.length ? round(xirr(flows)) : null,
     },

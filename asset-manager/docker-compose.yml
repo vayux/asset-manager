@@ -26,12 +26,14 @@ services:
       DB_USER: postgres
       DB_PASSWORD: password
       DB_NAME: asset_manager
+      UPLOAD_DIR: /app/uploads
     ports:
       - "5001:5001"
       - "3000:3000"
     volumes:
       - ./server:/app/server
       - /app/server/node_modules
+      - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -40,7 +42,7 @@ services:
     image: node:20
     working_dir: /app/client
     command: sh -c "npm ci && npm start"
-    # Shares the server's network so the CRA proxy to localhost:5001 works
+    # Shares the server's network so the Vite proxy to localhost:5001 works
     network_mode: "service:server"
     environment:
       BROWSER: none
@@ -52,3 +54,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

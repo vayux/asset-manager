@@ -1,5 +1,7 @@
 const { DataTypes } = require('sequelize');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
 const { sequelize } = require('../config/database');
+const { INVESTMENT_CATEGORIES } = require('../constants/categories');
 
 const Investment = sequelize.define('Investment', {
   id: {
@@ -23,20 +25,7 @@ const Investment = sequelize.define('Investment', {
     },
   },
   category: {
-    type: DataTypes.ENUM(
-      'bank_account',
-      'fixed_deposit', 
-      'recurring_deposit',
-      'stocks',
-      'mutual_funds',
-      'provident_fund',
-      'insurance',
-      'gold',
-      'real_estate',
-      'crypto',
-      'personal_loan',
-      'other'
-    ),
+    type: DataTypes.ENUM(...INVESTMENT_CATEGORIES),
     allowNull: false,
   },
   subCategory: {
@@ -79,6 +68,12 @@ const Investment = sequelize.define('Investment', {
   description: {
     type: DataTypes.TEXT,
     allowNull: true,
+  },
+  currency: {
+    type: DataTypes.STRING(3),
+    allowNull: false,
+    defaultValue: 'INR',
+    validate: { isIn: [SUPPORTED_CURRENCIES] },
   },
   isActive: {
     type: DataTypes.BOOLEAN,

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/client';
 import toast from 'react-hot-toast';
 import AuthCard from './AuthCard';
 
@@ -20,7 +20,7 @@ const ResetPassword = () => {
     }
     setLoading(true);
     try {
-      await axios.post('/api/auth/reset-password', { token, password });
+      await api.post('/api/auth/reset-password', { token, password });
       toast.success('Password updated. Please sign in.');
       navigate('/login');
     } catch (error) {

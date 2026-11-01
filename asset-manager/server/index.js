@@ -10,7 +10,7 @@ require('dotenv').config();
 
 const { sequelize } = require('./config/database');
 const { runMigrations } = require('./migrations');
-const { startSnapshotScheduler } = require('./utils/snapshots');
+const { startSnapshotScheduler } = require('./services/snapshots');
 const { validateSecrets } = require('./utils/security');
 const logger = require('./utils/logger');
 // Import models to ensure they are registered
@@ -99,6 +99,8 @@ app.use('/api/income', incomeRoutes);
 app.use('/api/goals', goalsRoutes);
 app.use('/api/optimizer', optimizerRoutes);
 app.use('/api/research', researchRoutes);
+app.use('/api/fx', require('./routes/fx'));
+app.use('/api/attachments', require('./routes/attachments'));
 
 // Health check
 app.get('/api/health', (req, res) => {

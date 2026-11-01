@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useAuth, getAccessToken } from '../../contexts/AuthContext';
 import MFASetup from '../MFA/MFASetup';
 import ChangePassword from './ChangePassword';
+import ExchangeRates from './ExchangeRates';
 import { 
   UserIcon, 
   ShieldCheckIcon, 
   BellIcon,
-  KeyIcon 
+  KeyIcon,
+  CurrencyRupeeIcon
 } from '@heroicons/react/24/outline';
 
 const Settings = () => {
@@ -54,6 +56,7 @@ const Settings = () => {
     { id: 'profile', name: 'Profile', icon: UserIcon },
     { id: 'security', name: 'Security', icon: ShieldCheckIcon },
     { id: 'notifications', name: 'Notifications', icon: BellIcon },
+    { id: 'currencies', name: 'Currencies', icon: CurrencyRupeeIcon },
   ];
 
   const handleProfileUpdate = async (e) => {
@@ -272,6 +275,16 @@ const Settings = () => {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'currencies' && (
+            <div className="card">
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold text-gray-900">Exchange Rates</h2>
+                <p className="text-sm text-gray-600">How amounts in other currencies are converted to ₹</p>
+              </div>
+              <ExchangeRates />
             </div>
           )}
 

@@ -1,5 +1,7 @@
 const { DataTypes } = require('sequelize');
+const { SUPPORTED_CURRENCIES } = require('../constants/currencies');
 const { sequelize } = require('../config/database');
+const { ASSET_CATEGORIES } = require('../constants/categories');
 
 // Asset model represents any positive-valued item owned by a user that is not necessarily an investment
 // Examples: property, vehicle, cash, collectibles etc.
@@ -25,7 +27,7 @@ const Asset = sequelize.define('Asset', {
     },
   },
   category: {
-    type: DataTypes.ENUM('cash', 'real_estate', 'vehicle', 'business', 'collectible', 'stocks', 'gadgets', 'other'),
+    type: DataTypes.ENUM(...ASSET_CATEGORIES),
     allowNull: false,
     defaultValue: 'other',
   },
@@ -53,6 +55,12 @@ const Asset = sequelize.define('Asset', {
   description: {
     type: DataTypes.TEXT,
     allowNull: true,
+  },
+  currency: {
+    type: DataTypes.STRING(3),
+    allowNull: false,
+    defaultValue: 'INR',
+    validate: { isIn: [SUPPORTED_CURRENCIES] },
   },
   isActive: {
     type: DataTypes.BOOLEAN,
