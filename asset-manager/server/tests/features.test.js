@@ -266,3 +266,34 @@ describe('CSV import', () => {
     expect((await importCsv(headers, 'title,value\nx,1\n')).status).toBe(400);
   });
 });
+
+describe('portfolio reconciliation', () => {
+  it('overview, stacked and monthly agree for past months, and snapshots use depreciated asset values', async () => {
+    const headers = await authed();
+    const month = (offset) => {
+      const d = new Date();
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1)).toISOString().slice(0, 7);
+    };
+    await request(app).post('/api/investments').set(headers).send({ name: 'Old fund', category: 'mutual_funds', initialAmount: 1000, currentAmount: 1300, investmentDate: `${month(-3)}-10` });
+    await request(app).post('/api/investments').set(headers).send({ name: 'Gold', category: 'gold', initialAmount: 500, currentAmount: 600, investmentDate: `${month(-1)}-10` });
+
+    const overview = await request(app).get(`/api/portfolio/overview?month=${month(-1)}`).set(headers);
+    expect(overview.body.totalValue).toBe(1500);
+    expect(overview.body.totalInvestments).toBe(2);
+    const current = await request(app).get('/api/portfolio/overview').set(headers);
+    expect(current.body.totalValue).toBe(1900);
+
+    const monthly = await request(app).get('/api/portfolio/analytics/monthly?limit=4').set(headers);
+    const stacked = await request(app).get('/api/portfolio/analytics/stacked?limit=4').set(headers);
+    monthly.body.data.forEach(({ month: m, total }) => {
+      const parts = stacked.body.data.filter(r => r.month === m).reduce((sum, r) => sum + r.total, 0);
+      expect(parts).toBeCloseTo(total, 2);
+    });
+    expect(stacked.body.data.filter(r => r.month === month(-2))).toEqual([{ month: month(-2), category: 'mutual_funds', total: 1000 }]);
+
+    const twoYearsAgo = new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10);
+    expect((await request(app).post('/api/assets').set(headers).send({ name: 'Laptop', category: 'gadgets', currentValue: 100000, purchaseDate: twoYearsAgo, depreciationRate: 10 })).status).toBe(201);
+    const snap = await request(app).post('/api/portfolio/snapshot').set(headers).send({ snapshotDate: '2026-02-01' });
+    expect(parseFloat(snap.body.snapshot.totalAssets)).toBeCloseTo(80000, -2);
+  });
+});

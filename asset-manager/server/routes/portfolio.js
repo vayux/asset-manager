@@ -3,7 +3,6 @@ const { body, query } = require('express-validator');
 const { Investment, InvestmentHistory, PortfolioSnapshot } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
-const { Op } = require('sequelize');
 const { createSnapshot } = require('../utils/snapshots');
 const { yearsBetween, cagr, xirr } = require('../utils/returns');
 
@@ -14,62 +13,25 @@ router.use(authMiddleware);
 
 const validateLimit = [query('limit').optional().isInt({ min: 1, max: 120 }).toInt(), handleValidation];
 
-// Helper to get first and last day of a month
-const getMonthRange = (monthStr) => {
-  // monthStr format: YYYY-MM
-  const [year, month] = monthStr.split('-').map(Number);
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)); // last day of month
-  return { start, end };
+
+const monthEnd = (month) => {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 };
 
-// Modify portfolio overview with optional month filter
-router.get('/overview', [query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'), handleValidation], async (req, res) => {
-  try {
-    const { month } = req.query; // YYYY-MM
+const lastMonths = (limit) => {
+  const now = new Date();
+  return Array.from({ length: limit }, (_, k) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (limit - 1 - k), 1))
+    .toISOString().slice(0, 7));
+};
 
-    const whereClause = {
-      userId: req.user.id,
-      isActive: true,
-    };
+const startDate = (inv) => String(inv.investmentDate || new Date(inv.createdAt).toISOString()).slice(0, 10);
 
-    if (month) {
-      const { start, end } = getMonthRange(month);
-      whereClause.investmentDate = { [Op.between]: [start, end] };
-    }
-
-    const investments = await Investment.findAll({ where: whereClause });
-
-    const totalValue = investments.reduce((sum, investment) => sum + parseFloat(investment.currentAmount), 0);
-
-    const categoryBreakdown = investments.reduce((acc, investment) => {
-      const category = investment.category;
-      if (!acc[category]) {
-        acc[category] = { count: 0, totalAmount: 0 };
-      }
-      acc[category].count += 1;
-      acc[category].totalAmount += parseFloat(investment.currentAmount);
-      return acc;
-    }, {});
-
-    res.json({ totalValue, totalInvestments: investments.length, categoryBreakdown, investments });
-  } catch (error) {
-    console.error('Portfolio overview error:', error);
-    res.status(500).json({ message: 'Failed to fetch portfolio overview' });
-  }
-});
-
-// Monthly analytics: returns totals per month for last N months
-// Month-end portfolio value for the last N months, rebuilt from valuation history.
-// Each investment counts from the month it was made, valued at its latest recorded valuation on or before
-// that month end (its initial amount before the first valuation); the current month uses today's values.
-router.get('/analytics/monthly', validateLimit, async (req, res) => {
-  const limit = req.query.limit || 12;
-  const investments = await Investment.findAll({
-    where: { userId: req.user.id, isActive: true },
-    attributes: ['id', 'currentAmount', 'initialAmount', 'investmentDate', 'createdAt'],
-    raw: true,
-  });
+// Loads active holdings with their valuation history. valueAt(inv, month) is the holding's month-end value:
+// null before it was bought, today's value for the current month, otherwise the latest valuation on or
+// before that month end (its initial amount before the first valuation).
+const loadHoldings = async (userId) => {
+  const investments = await Investment.findAll({ where: { userId, isActive: true }, raw: true });
   const histories = investments.length ? await InvestmentHistory.findAll({
     where: { investmentId: investments.map(inv => inv.id) },
     attributes: ['investmentId', 'valuationDate', 'amount'],
@@ -78,78 +40,62 @@ router.get('/analytics/monthly', validateLimit, async (req, res) => {
   }) : [];
   const byInvestment = {};
   histories.forEach((h) => { (byInvestment[h.investmentId] = byInvestment[h.investmentId] || []).push(h); });
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
-  const now = new Date();
-  const months = Array.from({ length: limit }, (_, k) => {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (limit - 1 - k), 1));
-    return d.toISOString().slice(0, 7);
-  });
-  const currentMonth = months[months.length - 1];
-  const monthEnd = (month) => {
-    const [y, m] = month.split('-').map(Number);
-    return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-  };
-
-  const data = months.map((month) => {
+  const valueAt = (inv, month) => {
     const end = monthEnd(month);
-    const total = investments.reduce((sum, inv) => {
-      const start = String(inv.investmentDate || new Date(inv.createdAt).toISOString()).slice(0, 10);
-      if (start > end) return sum;
-      if (month === currentMonth) return sum + parseFloat(inv.currentAmount || 0);
-      const known = (byInvestment[inv.id] || []).filter(h => String(h.valuationDate) <= end).pop();
-      const value = known ? known.amount : (inv.initialAmount ?? inv.currentAmount);
-      return sum + parseFloat(value || 0);
-    }, 0);
-    return { month, total: parseFloat(total.toFixed(2)) };
-  });
+    if (startDate(inv) > end) return null;
+    if (month >= currentMonth) return parseFloat(inv.currentAmount || 0);
+    const known = (byInvestment[inv.id] || []).filter(h => String(h.valuationDate) <= end).pop();
+    return parseFloat((known ? known.amount : (inv.initialAmount ?? inv.currentAmount)) || 0);
+  };
+  return { investments, valueAt };
+};
 
+const round2 = (n) => parseFloat(n.toFixed(2));
+
+// Holdings and values as of a month end (default: today)
+router.get('/overview', [query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'), handleValidation], async (req, res) => {
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
+  const { investments, valueAt } = await loadHoldings(req.user.id);
+  const held = investments
+    .map(inv => ({ ...inv, currentAmount: valueAt(inv, month) }))
+    .filter(inv => inv.currentAmount !== null);
+
+  const totalValue = round2(held.reduce((sum, inv) => sum + inv.currentAmount, 0));
+  const categoryBreakdown = held.reduce((acc, inv) => {
+    acc[inv.category] = acc[inv.category] || { count: 0, totalAmount: 0 };
+    acc[inv.category].count += 1;
+    acc[inv.category].totalAmount = round2(acc[inv.category].totalAmount + inv.currentAmount);
+    return acc;
+  }, {});
+
+  res.json({ month, totalValue, totalInvestments: held.length, categoryBreakdown, investments: held });
+});
+
+// Month-end portfolio value for the last N months, rebuilt from valuation history
+router.get('/analytics/monthly', validateLimit, async (req, res) => {
+  const { investments, valueAt } = await loadHoldings(req.user.id);
+  const data = lastMonths(req.query.limit || 12).map(month => ({
+    month,
+    total: round2(investments.reduce((sum, inv) => sum + (valueAt(inv, month) || 0), 0)),
+  }));
   res.json({ data });
 });
 
-// Category totals per month (stacked bar)
+// Same month-end values split by category; each month's rows add up to the monthly total
 router.get('/analytics/stacked', validateLimit, async (req, res) => {
-  try {
-    const { limit = 12 } = req.query;
-
-    // Build target months list (last N months inclusive of current)
-    const now = new Date();
-    const monthKeys = [];
-    for(let i=limit-1;i>=0;i--){
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()-i, 1));
-      monthKeys.push(d.toISOString().substring(0,7));
-    }
-
-    // Fetch active investments with basic fields
-    const investments = await Investment.findAll({
-       where: { userId: req.user.id, isActive: true },
-       attributes:['category','currentAmount','investmentDate','createdAt'],
-       raw:true,
-     });
-
-    const resultMap = {};
-    monthKeys.forEach(m=>{ resultMap[m]={}; });
-
-    investments.forEach(inv=>{
-      const amount = parseFloat(inv.currentAmount);
-      const month = (inv.investmentDate ? new Date(inv.investmentDate): new Date(inv.createdAt)).toISOString().substring(0,7);
-      if(monthKeys.includes(month)){
-        if(!resultMap[month][inv.category]) resultMap[month][inv.category] = 0;
-        resultMap[month][inv.category] += amount;
-      }
+  const { investments, valueAt } = await loadHoldings(req.user.id);
+  const rows = [];
+  lastMonths(req.query.limit || 12).forEach((month) => {
+    const byCategory = {};
+    investments.forEach((inv) => {
+      const value = valueAt(inv, month);
+      if (value !== null) byCategory[inv.category] = (byCategory[inv.category] || 0) + value;
     });
-
-    const rows=[];
-    monthKeys.forEach(m=>{
-      Object.entries(resultMap[m]).forEach(([cat,total])=>{
-        rows.push({month:m,category:cat,total});
-      });
-    });
-
-    res.json({ data: rows });
-  } catch(err){
-    console.error('stacked analytics error', err);
-    res.status(500).json({message:'Failed to fetch stacked analytics'});
-  }
+    Object.entries(byCategory).forEach(([category, total]) => rows.push({ month, category, total: round2(total) }));
+  });
+  res.json({ data: rows });
 });
 
 // Net worth over time from daily (automatic) and manual snapshots

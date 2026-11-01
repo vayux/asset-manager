@@ -1,5 +1,6 @@
 const { Investment, Asset, Liability, PortfolioSnapshot, User } = require('../models');
 const logger = require('./logger');
+const { bookValue } = require('./depreciation');
 
 const SCHEDULE_MS = 6 * 60 * 60 * 1000;
 const sum = (rows, field) => rows.reduce((total, row) => total + parseFloat(row[field] || 0), 0);
@@ -13,7 +14,7 @@ const buildSnapshot = async (userId) => {
     Liability.findAll({ where: { userId, isActive: true } }),
   ]);
   const totalValue = round2(sum(investments, 'currentAmount'));
-  const totalAssets = round2(sum(assets, 'currentValue'));
+  const totalAssets = round2(assets.reduce((total, asset) => total + bookValue(asset), 0));
   const totalLiabilities = round2(sum(liabilities, 'outstandingAmount'));
   const categoryBreakdown = investments.reduce((acc, inv) => {
     acc[inv.category] = round2((acc[inv.category] || 0) + parseFloat(inv.currentAmount));
