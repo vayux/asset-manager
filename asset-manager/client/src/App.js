@@ -22,6 +22,7 @@ const Goals = lazy(() => import('./components/Goals/Goals'));
 const Optimizer = lazy(() => import('./components/Optimizer/Optimizer'));
 const Quickstart = lazy(() => import('./components/Quickstart/Quickstart'));
 const Settings = lazy(() => import('./components/Settings/Settings'));
+const Research = lazy(() => import('./components/Research/Research'));
 
 const Spinner = ({ fullScreen }) => (
   <div className={`${fullScreen ? 'min-h-screen' : 'py-24'} flex items-center justify-center`}>
@@ -91,6 +92,7 @@ function App() {
               <Route path="/goals" element={<Goals />} />
               <Route path="/optimizer" element={<Optimizer />} />
               <Route path="/quickstart" element={<Quickstart />} />
+              <Route path="/research" element={<Research />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
 

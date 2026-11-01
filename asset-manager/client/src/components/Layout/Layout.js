@@ -19,6 +19,7 @@ import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
   Cog6ToothIcon,
+  DocumentMagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 
 const Layout = ({ children }) => {
@@ -57,6 +58,7 @@ const Layout = ({ children }) => {
     { name: 'Portfolio', href: '/portfolio', icon: Squares2X2Icon, current: location.pathname === '/portfolio', primary: false },
     { name: 'Goals', href: '/goals', icon: TrophyIcon, current: location.pathname === '/goals', primary: false },
     { name: 'Optimizer', href: '/optimizer', icon: LightBulbIcon, current: location.pathname === '/optimizer', primary: false },
+    { name: 'Research', href: '/research', icon: DocumentMagnifyingGlassIcon, current: location.pathname === '/research', primary: false },
     { name: 'Quickstart', href: '/quickstart', icon: RocketLaunchIcon, current: location.pathname === '/quickstart', primary: false },
     { name: 'Settings', href: '/settings', icon: Cog6ToothIcon, current: location.pathname === '/settings', primary: false },
   ];
