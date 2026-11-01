@@ -26,12 +26,14 @@ services:
       DB_USER: postgres
       DB_PASSWORD: password
       DB_NAME: asset_manager
+      UPLOAD_DIR: /app/uploads
     ports:
       - "5001:5001"
       - "3000:3000"
     volumes:
       - ./server:/app/server
       - /app/server/node_modules
+      - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -52,3 +54,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

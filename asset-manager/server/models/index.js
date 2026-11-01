@@ -12,8 +12,12 @@ const Goal = require('./Goal');
 const Session = require('./Session');
 const UserToken = require('./UserToken');
 const ExchangeRate = require('./ExchangeRate');
+const Attachment = require('./Attachment');
 
 // Define associations
+User.hasMany(Attachment, { foreignKey: 'userId', as: 'attachments', onDelete: 'CASCADE' });
+Attachment.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
 User.hasMany(ExchangeRate, { foreignKey: 'userId', as: 'exchangeRates', onDelete: 'CASCADE' });
 ExchangeRate.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
@@ -76,4 +80,5 @@ module.exports = {
   Income,
   Goal,
   ExchangeRate,
+  Attachment,
 }; 

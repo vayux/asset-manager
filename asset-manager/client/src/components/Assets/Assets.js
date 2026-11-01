@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { formatCurrency, formatWithInr } from '../../utils/currency';
 import CurrencySelect from '../common/CurrencySelect';
+import Attachments from '../common/Attachments';
 
 const categoryOptions = [
   { value: 'cash', label: 'Cash' },
@@ -167,6 +168,11 @@ const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
             {isEdit ? 'Update' : 'Add'} Asset
           </button>
         </form>
+        {isEdit && asset?.id && (
+          <div className="mt-6 border-t pt-4">
+            <Attachments entityType="asset" entityId={asset.id} />
+          </div>
+        )}
       </div>
     </div>
   );

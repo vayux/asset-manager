@@ -100,6 +100,7 @@ app.use('/api/goals', goalsRoutes);
 app.use('/api/optimizer', optimizerRoutes);
 app.use('/api/research', researchRoutes);
 app.use('/api/fx', require('./routes/fx'));
+app.use('/api/attachments', require('./routes/attachments'));
 
 // Health check
 app.get('/api/health', (req, res) => {

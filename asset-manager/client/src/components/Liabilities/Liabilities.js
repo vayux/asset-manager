@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { formatWithInr } from '../../utils/currency';
 import CurrencySelect from '../common/CurrencySelect';
+import Attachments from '../common/Attachments';
 
 const categoryOptions = [
   { value: 'loan', label: 'Loan' },
@@ -181,6 +182,11 @@ const LiabilityForm = ({ mode = 'add', liability = {}, onSuccess, onCancel }) =>
             {isEdit ? 'Update' : 'Add'} Liability
           </button>
         </form>
+        {isEdit && liability?.id && (
+          <div className="mt-6 border-t pt-4">
+            <Attachments entityType="liability" entityId={liability.id} />
+          </div>
+        )}
       </div>
     </div>
   );
