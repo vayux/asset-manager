@@ -4,7 +4,7 @@ const { sequelize } = require('../config/database');
 const { resetDatabase } = require('./db');
 const { Investment, InvestmentHistory } = require('../models');
 const emailService = require('../utils/emailService');
-const { runDailySnapshots } = require('../utils/snapshots');
+const { runDailySnapshots } = require('../services/snapshots');
 const { cagr, xirr } = require('../utils/returns');
 
 if (!process.env.DB_NAME.endsWith('_test')) {

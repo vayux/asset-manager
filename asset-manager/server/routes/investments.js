@@ -8,26 +8,13 @@ const { format } = require('date-fns');
 const { sendInvestmentUpdate } = require('../utils/emailService');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const pick = require('../utils/pick');
+const { INVESTMENT_CATEGORIES } = require('../constants/categories');
+const { getMonthRange } = require('../utils/dates');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authMiddleware);
-
-const INVESTMENT_CATEGORIES = [
-  'bank_account',
-  'fixed_deposit',
-  'recurring_deposit',
-  'stocks',
-  'mutual_funds',
-  'provident_fund',
-  'insurance',
-  'gold',
-  'real_estate',
-  'crypto',
-  'personal_loan',
-  'other',
-];
 
 const INVESTMENT_FIELDS = [
   'name',
@@ -42,14 +29,6 @@ const INVESTMENT_FIELDS = [
   'description',
   'investmentDate',
 ];
-
-// helper
-const getMonthRange = (monthStr) => {
-  const [year, month] = monthStr.split('-').map(Number);
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
-  return { start, end };
-};
 
 // Get investment summary by category
 router.get('/summary/category', async (req, res) => {

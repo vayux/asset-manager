@@ -3,6 +3,7 @@ const { body, param, validationResult } = require('express-validator');
 const { Liability, Asset } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const pick = require('../utils/pick');
+const { LIABILITY_TYPES } = require('../constants/categories');
 
 const router = express.Router();
 
@@ -35,7 +36,7 @@ router.get('/', async (req, res) => {
 // POST liability
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Liability name is required'),
-  body('category').isIn(['loan', 'credit_card', 'mortgage', 'tax', 'other']).withMessage('Invalid category'),
+  body('category').isIn(LIABILITY_TYPES).withMessage('Invalid category'),
   body('outstandingAmount').isFloat({ min: 0 }).withMessage('Outstanding amount must be positive'),
   body('assetId').optional({ values: 'null' }).isUUID().withMessage('Invalid asset ID'),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),
@@ -62,7 +63,7 @@ router.post('/', [
 router.put('/:id', [
   param('id').isUUID().withMessage('Invalid liability ID'),
   body('name').optional().notEmpty().trim(),
-  body('category').optional().isIn(['loan', 'credit_card', 'mortgage', 'tax', 'other']),
+  body('category').optional().isIn(LIABILITY_TYPES),
   body('outstandingAmount').optional().isFloat({ min: 0 }),
   body('assetId').optional({ values: 'null' }).isUUID().withMessage('Invalid asset ID'),
   body('interestRate').optional().isFloat({ min: 0, max: 100 }),

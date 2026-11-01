@@ -1,11 +1,10 @@
 const { Investment, Asset, Liability, PortfolioSnapshot, User } = require('../models');
-const logger = require('./logger');
-const { bookValue } = require('./depreciation');
+const logger = require('../utils/logger');
+const { bookValue } = require('../utils/depreciation');
+const { sumMoney } = require('../utils/money');
+const { today } = require('../utils/dates');
 
 const SCHEDULE_MS = 6 * 60 * 60 * 1000;
-const sum = (rows, field) => rows.reduce((total, row) => total + parseFloat(row[field] || 0), 0);
-const round2 = (n) => Math.round(n * 100) / 100;
-const today = () => new Date().toISOString().slice(0, 10);
 
 const buildSnapshot = async (userId) => {
   const [investments, assets, liabilities] = await Promise.all([
@@ -13,11 +12,11 @@ const buildSnapshot = async (userId) => {
     Asset.findAll({ where: { userId, isActive: true } }),
     Liability.findAll({ where: { userId, isActive: true } }),
   ]);
-  const totalValue = round2(sum(investments, 'currentAmount'));
-  const totalAssets = round2(assets.reduce((total, asset) => total + bookValue(asset), 0));
-  const totalLiabilities = round2(sum(liabilities, 'outstandingAmount'));
+  const totalValue = sumMoney(investments, inv => inv.currentAmount);
+  const totalAssets = sumMoney(assets, asset => bookValue(asset));
+  const totalLiabilities = sumMoney(liabilities, l => l.outstandingAmount);
   const categoryBreakdown = investments.reduce((acc, inv) => {
-    acc[inv.category] = round2((acc[inv.category] || 0) + parseFloat(inv.currentAmount));
+    acc[inv.category] = sumMoney([acc[inv.category], inv.currentAmount]);
     return acc;
   }, {});
   return {
@@ -25,7 +24,7 @@ const buildSnapshot = async (userId) => {
     totalValue,
     totalAssets,
     totalLiabilities,
-    netWorth: round2(totalValue + totalAssets - totalLiabilities),
+    netWorth: sumMoney([totalValue, totalAssets, -totalLiabilities]),
     categoryBreakdown,
     investments: investments.map(inv => ({
       id: inv.id,

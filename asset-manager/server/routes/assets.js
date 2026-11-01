@@ -6,6 +6,8 @@ const authMiddleware = require('../middleware/auth');
 const { handleValidation } = require('../middleware/validate');
 const pick = require('../utils/pick');
 const { bookValue } = require('../utils/depreciation');
+const { toAmount } = require('../utils/money');
+const { ASSET_CATEGORIES } = require('../constants/categories');
 
 const router = express.Router();
 
@@ -29,7 +31,7 @@ router.get('/', async (req, res) => {
       const plain = a.get({ plain: true });
       const computed = bookValue(plain, now);
       if (plain.depreciationRate && plain.purchaseDate) {
-        plain.originalValue = parseFloat(plain.currentValue);
+        plain.originalValue = toAmount(plain.currentValue);
         plain.currentValue = computed;
       }
       plain.bookValue = computed;
@@ -46,7 +48,7 @@ router.get('/', async (req, res) => {
 // POST /api/assets - create asset
 router.post('/', [
   body('name').notEmpty().trim().withMessage('Asset name is required'),
-  body('category').isIn(['cash', 'real_estate', 'vehicle', 'business', 'collectible', 'stocks', 'gadgets', 'other']).withMessage('Invalid category'),
+  body('category').isIn(ASSET_CATEGORIES).withMessage('Invalid category'),
   body('currentValue').isFloat({ min: 0 }).withMessage('Current value must be positive'),
   body('purchaseDate').optional().isISO8601().toDate(),
   body('depreciationRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Depreciation rate must be between 0 and 100'),
@@ -68,7 +70,7 @@ router.post('/', [
 router.put('/:id', [
   param('id').isUUID().withMessage('Invalid asset ID'),
   body('name').optional().notEmpty().trim(),
-  body('category').optional().isIn(['cash', 'real_estate', 'vehicle', 'business', 'collectible', 'stocks', 'gadgets', 'other']).withMessage('Invalid category'),
+  body('category').optional().isIn(ASSET_CATEGORIES).withMessage('Invalid category'),
   body('currentValue').optional().isFloat({ min: 0 }),
   body('purchaseDate').optional().isISO8601().toDate(),
   body('depreciationRate').optional().isFloat({ min: 0, max: 100 }),

@@ -10,7 +10,7 @@ require('dotenv').config();
 
 const { sequelize } = require('./config/database');
 const { runMigrations } = require('./migrations');
-const { startSnapshotScheduler } = require('./utils/snapshots');
+const { startSnapshotScheduler } = require('./services/snapshots');
 const { validateSecrets } = require('./utils/security');
 const logger = require('./utils/logger');
 // Import models to ensure they are registered

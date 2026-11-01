@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
+const { INVESTMENT_CATEGORIES } = require('../constants/categories');
 
 const Investment = sequelize.define('Investment', {
   id: {
@@ -23,20 +24,7 @@ const Investment = sequelize.define('Investment', {
     },
   },
   category: {
-    type: DataTypes.ENUM(
-      'bank_account',
-      'fixed_deposit', 
-      'recurring_deposit',
-      'stocks',
-      'mutual_funds',
-      'provident_fund',
-      'insurance',
-      'gold',
-      'real_estate',
-      'crypto',
-      'personal_loan',
-      'other'
-    ),
+    type: DataTypes.ENUM(...INVESTMENT_CATEGORIES),
     allowNull: false,
   },
   subCategory: {

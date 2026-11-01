@@ -5,22 +5,22 @@ const { bookValue } = require('../utils/depreciation');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation, MONTH_REGEX } = require('../middleware/validate');
 const { Op } = require('sequelize');
+const { LIQUID_INVESTMENT_CATEGORIES, LIQUID_ASSET_CATEGORIES } = require('../constants/categories');
+const { toAmount, sumMoney } = require('../utils/money');
+const { currentMonth } = require('../utils/dates');
 
 const router = express.Router();
 router.use(authMiddleware);
 
 const validateMonth = [query('month').optional().matches(MONTH_REGEX).withMessage('month must be YYYY-MM'), handleValidation];
 
-const LIQUID_INVESTMENT_CATEGORIES = ['bank_account', 'stocks', 'mutual_funds', 'crypto'];
-const LIQUID_ASSET_CATEGORIES = ['cash', 'stocks'];
 const MONTHLY_FACTOR = { weekly: 52 / 12, biweekly: 26 / 12, monthly: 1 };
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
-const sumBy = (rows, fn) => rows.reduce((total, row) => total + fn(row), 0);
+const sumBy = sumMoney;
 
 // Recurring income normalised to a monthly amount; one-off income only counts in its pay month
 const monthlyIncome = (incomes, month) => sumBy(incomes, (inc) => {
-  const amount = parseFloat(inc.amount || 0);
+  const amount = toAmount(inc.amount);
   if (inc.frequency === 'once') return String(inc.nextPayDate).slice(0, 7) === month ? amount : 0;
   return amount * (MONTHLY_FACTOR[inc.frequency] || 1);
 });
@@ -40,17 +40,17 @@ router.get('/health', validateMonth, async (req, res) => {
 
   const now = new Date();
   const assetValue = (a) => bookValue(a, now);
-  const invValue = (i) => parseFloat(i.currentAmount || 0);
+  const invValue = (i) => toAmount(i.currentAmount);
 
   const totalAssetValue = sumBy(assets, assetValue);
   const totalInvValue = sumBy(investments, invValue);
   const totalAssets = totalAssetValue + totalInvValue;
-  const totalLiabilities = parseFloat(liabilitiesSum || 0);
+  const totalLiabilities = toAmount(liabilitiesSum);
   const netWorth = totalAssets - totalLiabilities;
   const debtRatio = totalAssets > 0 ? totalLiabilities / totalAssets : (totalLiabilities > 0 ? 1 : 0);
 
   const totalIncome = monthlyIncome(incomes, month);
-  const totalSpent = parseFloat(spent || 0);
+  const totalSpent = toAmount(spent);
   const savingsRate = totalIncome > 0 ? Math.max(0, totalIncome - totalSpent) / totalIncome : 0;
 
   const categoryTotals = {};
@@ -92,13 +92,13 @@ router.get('/health', validateMonth, async (req, res) => {
 
 // Tax loss harvesting suggestions
 router.get('/tax-loss', [query('threshold').optional().isFloat({ min: 0, max: 100 }), handleValidation], async (req, res) => {
-  const threshold = parseFloat(req.query.threshold || 10); // percent decline
+  const threshold = toAmount(req.query.threshold || 10); // percent decline
   const investments = await Investment.findAll({
     where: { userId: req.user.id, isActive: true, initialAmount: { [Op.ne]: null } },
   });
   const opportunities = investments.map((inv) => {
-    const current = parseFloat(inv.currentAmount || 0);
-    const initial = parseFloat(inv.initialAmount || 0);
+    const current = toAmount(inv.currentAmount);
+    const initial = toAmount(inv.initialAmount);
     return { inv, current, initial, decline: initial > 0 ? ((initial - current) / initial) * 100 : 0 };
   }).filter(({ initial, decline }) => initial > 0 && decline >= threshold)
     .map(({ inv, current, initial, decline }) => ({
@@ -124,7 +124,7 @@ router.get('/recommendations', validateMonth, async (req, res) => {
     include: [{ model: BudgetCategory, as: 'category', attributes: ['name'] }],
   });
   entries.forEach((e) => {
-    if (parseFloat(e.spentAmount) > parseFloat(e.budgetedAmount) * 1.1) {
+    if (toAmount(e.spentAmount) > toAmount(e.budgetedAmount) * 1.1) {
       recs.push(`You have overspent on "${e.category?.name || 'a budget category'}" by more than 10%. Consider reducing discretionary expenses.`);
     }
   });
@@ -133,8 +133,8 @@ router.get('/recommendations', validateMonth, async (req, res) => {
   const today = new Date();
   goals.forEach((g) => {
     const months = Math.max(1, Math.round((new Date(g.targetDate) - today) / (30 * 24 * 60 * 60 * 1000)));
-    const target = parseFloat(g.targetAmount);
-    const projected = parseFloat(g.currentAmount || 0) + months * parseFloat(g.monthlyContribution || 0);
+    const target = toAmount(g.targetAmount);
+    const projected = toAmount(g.currentAmount) + months * toAmount(g.monthlyContribution);
     if (projected < target) {
       const need = ((target - projected) / months).toFixed(0);
       recs.push(`Goal "${g.name}" is off track. Increase monthly contribution by about ₹${need} to hit the target.`);

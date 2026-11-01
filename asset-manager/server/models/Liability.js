@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
+const { LIABILITY_TYPES } = require('../constants/categories');
 
 // Liability model represents debts or obligations (negative value items) for a user.
 const Liability = sequelize.define('Liability', {
@@ -24,7 +25,7 @@ const Liability = sequelize.define('Liability', {
     },
   },
   category: {
-    type: DataTypes.ENUM('loan', 'credit_card', 'mortgage', 'tax', 'other'),
+    type: DataTypes.ENUM(...LIABILITY_TYPES),
     allowNull: false,
     defaultValue: 'other',
   },

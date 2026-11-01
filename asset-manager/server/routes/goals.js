@@ -4,6 +4,8 @@ const { Goal, Investment, Asset, Liability } = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { handleValidation } = require('../middleware/validate');
 const pick = require('../utils/pick');
+const { toAmount, sumMoney } = require('../utils/money');
+const { bookValue } = require('../utils/depreciation');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -75,16 +77,16 @@ router.delete('/:id', [ param('id').isUUID(), handleValidation ], async (req, re
 router.get('/:id/projection', [ param('id').isUUID(), query('contribution').optional().isFloat({ min: 0 }), query('months').optional().isInt({ min: 1, max: MAX_PROJECTION_MONTHS }), handleValidation ], async (req, res) => {
   const goal = await Goal.findOne({ where: { id: req.params.id, userId: req.user.id } });
   if (!goal) return res.status(404).json({ message: 'Not found' });
-  const contribution = parseFloat(req.query.contribution || goal.monthlyContribution || 0);
+  const contribution = toAmount(req.query.contribution || goal.monthlyContribution);
   const today = new Date();
   const monthsToTarget = req.query.months ? parseInt(req.query.months, 10) : monthsUntil(goal.targetDate);
   const data = [];
-  let amount = parseFloat(goal.currentAmount || 0);
+  let amount = toAmount(goal.currentAmount);
   for (let m = 0; m <= monthsToTarget; m++) {
     data.push({
       monthOffset: m,
       date: new Date(today.getFullYear(), today.getMonth() + m, 1),
-      amount: parseFloat(amount.toFixed(2)),
+      amount: toAmount(amount),
     });
     amount += contribution;
   }
@@ -94,14 +96,14 @@ router.get('/:id/projection', [ param('id').isUUID(), query('contribution').opti
 router.get('/:id/projection/montecarlo', [ param('id').isUUID(), query('contribution').optional().isFloat({ min: 0 }), query('sims').optional().isInt({ min: 100, max: 5000 }), handleValidation ], async (req, res) => {
   const goal = await Goal.findOne({ where: { id: req.params.id, userId: req.user.id } });
   if (!goal) return res.status(404).json({ message: 'Not found' });
-  const contribution = parseFloat(req.query.contribution || goal.monthlyContribution || 0);
+  const contribution = toAmount(req.query.contribution || goal.monthlyContribution);
   const sims = parseInt(req.query.sims || '1000', 10);
   const meanReturn = 0.005; // 0.5% monthly mean
   const stdDev = 0.03; // 3% monthly std dev
   const monthsToTarget = monthsUntil(goal.targetDate);
 
   // Determine starting amount
-  let baseAmount = parseFloat(goal.currentAmount || 0);
+  let baseAmount = toAmount(goal.currentAmount);
   if (goal.scope === 'net_worth') {
     try {
       const [investments, assets, liabilities] = await Promise.all([
@@ -109,10 +111,9 @@ router.get('/:id/projection/montecarlo', [ param('id').isUUID(), query('contribu
         Asset.findAll({ where: { userId: req.user.id, isActive: true } }),
         Liability.findAll({ where: { userId: req.user.id, isActive: true } }),
       ]);
-      const invTotal = investments.reduce((s, i) => s + parseFloat(i.currentAmount || 0), 0);
-      const assetTotal = assets.reduce((s, a) => s + parseFloat(a.currentValue || 0), 0);
-      const liabTotal = liabilities.reduce((s, l) => s + parseFloat(l.outstandingAmount || 0), 0);
-      baseAmount = invTotal + assetTotal - liabTotal;
+      baseAmount = sumMoney(investments, i => i.currentAmount)
+        + sumMoney(assets, a => bookValue(a))
+        - sumMoney(liabilities, l => l.outstandingAmount);
     } catch (err) {
       console.error('Net-worth base amount calc error:', err);
     }
