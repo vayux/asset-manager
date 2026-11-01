@@ -26,6 +26,7 @@ const budgetRoutes = require('./routes/budget');
 const incomeRoutes = require('./routes/income');
 const goalsRoutes = require('./routes/goals');
 const optimizerRoutes = require('./routes/optimizer');
+const researchRoutes = require('./routes/research');
 
 const app = express();
 // Number of reverse proxies in front of the API (e.g. 1 behind nginx/ELB). Leave unset when exposed directly,
@@ -97,6 +98,7 @@ app.use('/api/budget', budgetRoutes);
 app.use('/api/income', incomeRoutes);
 app.use('/api/goals', goalsRoutes);
 app.use('/api/optimizer', optimizerRoutes);
+app.use('/api/research', researchRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

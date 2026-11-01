@@ -1,4 +1,4 @@
-// Static, educational watchlists. No live prices: each row links to its NSE quote page.
+// Static, educational watchlists; live prices come from /api/research/quotes
 export const LAST_REVIEWED = 'October 2026';
 
 export const LONG_TERM = [

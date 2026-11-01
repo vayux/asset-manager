@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { ArrowTopRightOnSquareIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import React, { useCallback, useEffect, useState } from 'react';
+import axios from 'axios';
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { CHECKLIST, LAST_REVIEWED, LONG_TERM, MID_TERM, SHORT_TERM_RULES, quoteUrl } from './researchData';
 
 const TABS = [
@@ -14,7 +15,20 @@ const INTRO = {
   short: 'Over months, prices move mostly on news and momentum, which no one can predict reliably, so there is no stock list here. If you trade, follow these rules.',
 };
 
-const StockTable = ({ rows }) => (
+const price = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatPrice = (n) => (n == null ? '—' : price.format(n));
+
+const DayChange = ({ quote }) => {
+  if (!quote || quote.change == null) return <span className="text-gray-400">—</span>;
+  const up = quote.change >= 0;
+  return (
+    <span className={up ? 'text-green-600' : 'text-red-600'}>
+      {up ? '+' : ''}{quote.change.toFixed(2)} ({up ? '+' : ''}{quote.changePercent.toFixed(2)}%)
+    </span>
+  );
+};
+
+const StockTable = ({ rows, quotes, loading }) => (
   <div className="overflow-x-auto">
     <table className="min-w-full divide-y divide-gray-200 text-sm">
       <thead className="bg-gray-50">
@@ -22,12 +36,17 @@ const StockTable = ({ rows }) => (
           <th className="px-4 py-2 text-left font-medium text-gray-500">#</th>
           <th className="px-4 py-2 text-left font-medium text-gray-500">Company</th>
           <th className="px-4 py-2 text-left font-medium text-gray-500">Sector</th>
+          <th className="px-4 py-2 text-right font-medium text-gray-500">Price</th>
+          <th className="px-4 py-2 text-right font-medium text-gray-500">Day change</th>
+          <th className="px-4 py-2 text-right font-medium text-gray-500 whitespace-nowrap">52-week range</th>
           <th className="px-4 py-2 text-left font-medium text-gray-500">Why research it</th>
           <th className="px-4 py-2 text-left font-medium text-gray-500">Live quote</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-gray-100">
-        {rows.map((row, index) => (
+        {rows.map((row, index) => {
+          const quote = quotes[row.symbol];
+          return (
           <tr key={row.symbol}>
             <td className="px-4 py-2 text-gray-500">{index + 1}</td>
             <td className="px-4 py-2">
@@ -35,6 +54,13 @@ const StockTable = ({ rows }) => (
               <div className="text-xs text-gray-500">NSE: {row.symbol}</div>
             </td>
             <td className="px-4 py-2 text-gray-700">{row.sector}</td>
+            <td className="px-4 py-2 text-right font-medium text-gray-900 whitespace-nowrap" data-testid={`price-${row.symbol}`}>
+              {quote ? formatPrice(quote.price) : <span className="text-gray-400">{loading ? '…' : '—'}</span>}
+            </td>
+            <td className="px-4 py-2 text-right whitespace-nowrap"><DayChange quote={quote} /></td>
+            <td className="px-4 py-2 text-right text-gray-600 whitespace-nowrap">
+              {quote?.fiftyTwoWeekLow != null ? `${formatPrice(quote.fiftyTwoWeekLow)} – ${formatPrice(quote.fiftyTwoWeekHigh)}` : '—'}
+            </td>
             <td className="px-4 py-2 text-gray-700">{row.thesis}</td>
             <td className="px-4 py-2">
               <a href={quoteUrl(row.symbol)} target="_blank" rel="noopener noreferrer"
@@ -43,7 +69,8 @@ const StockTable = ({ rows }) => (
               </a>
             </td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   </div>
@@ -51,6 +78,32 @@ const StockTable = ({ rows }) => (
 
 const Research = () => {
   const [tab, setTab] = useState('long');
+  const [quotes, setQuotes] = useState({});
+  const [meta, setMeta] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const rows = tab === 'long' ? LONG_TERM : tab === 'mid' ? MID_TERM : null;
+
+  const loadQuotes = useCallback(async (list) => {
+    if (!list) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const symbols = list.map(r => encodeURIComponent(r.symbol)).join(',');
+      const { data } = await axios.get(`/api/research/quotes?symbols=${symbols}`);
+      setQuotes(prev => ({ ...prev, ...data.quotes }));
+      setMeta({ source: data.source, fetchedAt: data.fetchedAt, unavailable: data.unavailable });
+    } catch (err) {
+      setError('Live prices are unavailable right now.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadQuotes(rows);
+  }, [rows, loadQuotes]);
 
   return (
     <div className="space-y-6">
@@ -62,8 +115,8 @@ const Research = () => {
       <div className="flex items-start rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
         <ExclamationTriangleIcon className="h-5 w-5 mr-2 flex-shrink-0" />
         <span>
-          Educational watchlists, not buy recommendations. Prices and valuations are not shown here and change daily —
-          check them and the checklist below before investing, and consult a SEBI-registered investment adviser for personal advice.
+          Educational watchlists, not buy recommendations. Prices change constantly and a price alone says nothing about valuation —
+          check the checklist below before investing, and consult a SEBI-registered investment adviser for personal advice.
         </span>
       </div>
 
@@ -82,8 +135,23 @@ const Research = () => {
 
       <div className="card space-y-4">
         <p className="text-sm text-gray-700">{INTRO[tab]}</p>
-        {tab === 'long' && <StockTable rows={LONG_TERM} />}
-        {tab === 'mid' && <StockTable rows={MID_TERM} />}
+        {rows && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+              <span>
+                {error || (meta
+                  ? `Prices from ${meta.source}, may be delayed up to 15 minutes. Updated ${new Date(meta.fetchedAt).toLocaleTimeString('en-IN')}.`
+                  : 'Loading live prices…')}
+                {meta?.unavailable?.length ? ` No price for ${meta.unavailable.join(', ')}.` : ''}
+              </span>
+              <button type="button" onClick={() => loadQuotes(rows)} disabled={loading}
+                className="inline-flex items-center text-primary-600 hover:text-primary-500 disabled:opacity-50">
+                <ArrowPathIcon className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh prices
+              </button>
+            </div>
+            <StockTable rows={rows} quotes={quotes} loading={loading} />
+          </>
+        )}
         {tab === 'short' && (
           <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-700">
             {SHORT_TERM_RULES.map(rule => <li key={rule}>{rule}</li>)}
