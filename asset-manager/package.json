@@ -10,7 +10,10 @@
     "build": "cd client && npm run build",
     "install-server": "cd server && npm install",
     "install-client": "cd client && npm install",
-    "install-all": "npm run install-server && npm run install-client"
+    "install-all": "npm run install-server && npm run install-client",
+    "prepare": "cd .. && husky asset-manager/.husky || true",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [
     "investment",
@@ -21,6 +24,22 @@
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.9.10"
+  },
+  "lint-staged": {
+    "server/**/*.js": [
+      "prettier --write",
+      "npm --prefix server exec -- eslint --max-warnings=0"
+    ],
+    "client/src/**/*.js": [
+      "prettier --write",
+      "npm --prefix client exec -- eslint --max-warnings=0"
+    ],
+    "*.{json,md,yml}": [
+      "prettier --write"
+    ]
   }
 }
