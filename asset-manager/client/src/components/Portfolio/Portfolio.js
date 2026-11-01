@@ -8,15 +8,10 @@ import { BanknotesIcon, CreditCardIcon, ChartBarIcon } from '@heroicons/react/24
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import html2canvas from 'html2canvas';
+import { formatCurrency } from '../../utils/currency';
 
 const COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4','#84CC16','#F97316'];
 
-const formatCurrency = (amount) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount);
 
 const Portfolio = () => {
   const [growthData, setGrowthData] = useState([]);

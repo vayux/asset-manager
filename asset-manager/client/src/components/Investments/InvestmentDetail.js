@@ -3,8 +3,8 @@ import {useParams, Link} from 'react-router-dom';
 import axios from 'axios';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
+import { formatCurrency } from '../../utils/currency';
 
-const formatCurrency = amt=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(amt);
 
 const InvestmentDetail=()=>{
   const {id}=useParams();

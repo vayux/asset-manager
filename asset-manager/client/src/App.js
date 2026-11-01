@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { lazy, Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
@@ -9,29 +9,32 @@ import Register from './components/Auth/Register';
 import ForgotPassword from './components/Auth/ForgotPassword';
 import ResetPassword from './components/Auth/ResetPassword';
 import VerifyEmail from './components/Auth/VerifyEmail';
-import Dashboard from './components/Dashboard/Dashboard';
-import Investments from './components/Investments/Investments';
-import InvestmentDetail from './components/Investments/InvestmentDetail';
-import Portfolio from './components/Portfolio/Portfolio';
 import Layout from './components/Layout/Layout';
-import Assets from './components/Assets/Assets';
-import Liabilities from './components/Liabilities/Liabilities';
-import Budget from './components/Budget/Budget';
-import Goals from './components/Goals/Goals';
-import Optimizer from './components/Optimizer/Optimizer';
-import Quickstart from './components/Quickstart/Quickstart';
-import Settings from './components/Settings/Settings';
+
+const Dashboard = lazy(() => import('./components/Dashboard/Dashboard'));
+const Investments = lazy(() => import('./components/Investments/Investments'));
+const InvestmentDetail = lazy(() => import('./components/Investments/InvestmentDetail'));
+const Portfolio = lazy(() => import('./components/Portfolio/Portfolio'));
+const Assets = lazy(() => import('./components/Assets/Assets'));
+const Liabilities = lazy(() => import('./components/Liabilities/Liabilities'));
+const Budget = lazy(() => import('./components/Budget/Budget'));
+const Goals = lazy(() => import('./components/Goals/Goals'));
+const Optimizer = lazy(() => import('./components/Optimizer/Optimizer'));
+const Quickstart = lazy(() => import('./components/Quickstart/Quickstart'));
+const Settings = lazy(() => import('./components/Settings/Settings'));
+
+const Spinner = ({ fullScreen }) => (
+  <div className={`${fullScreen ? 'min-h-screen' : 'py-24'} flex items-center justify-center`}>
+    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary-600"></div>
+  </div>
+);
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary-600"></div>
-      </div>
-    );
+    return <Spinner fullScreen />;
   }
   
   return user ? children : <Navigate to="/login" />;
@@ -42,11 +45,7 @@ const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
   
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary-600"></div>
-      </div>
-    );
+    return <Spinner fullScreen />;
   }
   
   return user ? <Navigate to="/dashboard" /> : children;
@@ -80,117 +79,21 @@ function App() {
             <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
-            {/* Protected Routes */}
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Dashboard />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/investments" 
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Investments />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            <Route
-              path="/investments/:id"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InvestmentDetail />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-            <Route 
-              path="/assets" 
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Assets />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/liabilities" 
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Liabilities />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/portfolio" 
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Portfolio />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            <Route
-              path="/budget"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Budget />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/goals"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Goals />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/optimizer"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Optimizer />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/quickstart"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Quickstart />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Settings />
-                  </Layout>
-                </ProtectedRoute>
-              } 
-            />
-            
+            {/* Protected Routes share one layout; pages load on demand */}
+            <Route element={<ProtectedRoute><Layout><Suspense fallback={<Spinner />}><Outlet /></Suspense></Layout></ProtectedRoute>}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/investments" element={<Investments />} />
+              <Route path="/investments/:id" element={<InvestmentDetail />} />
+              <Route path="/assets" element={<Assets />} />
+              <Route path="/liabilities" element={<Liabilities />} />
+              <Route path="/portfolio" element={<Portfolio />} />
+              <Route path="/budget" element={<Budget />} />
+              <Route path="/goals" element={<Goals />} />
+              <Route path="/optimizer" element={<Optimizer />} />
+              <Route path="/quickstart" element={<Quickstart />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+
             {/* Default redirect */}
             <Route path="/" element={<Navigate to="/dashboard" />} />
           </Routes>

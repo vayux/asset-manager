@@ -52,7 +52,7 @@ jobs:
           cache-dependency-path: asset-manager/client/package-lock.json
       - run: npm ci
       - run: npm run lint
-      - run: npm test -- --watchAll=false --passWithNoTests
+      - run: npm test -- --watchAll=false
       - run: npm run build
         env:
           CI: true

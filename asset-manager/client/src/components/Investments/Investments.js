@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { formatCurrency } from '../../utils/currency';
 
 const categoryOptions = [
   { value: 'bank_account', label: 'Bank Account' },
@@ -18,12 +19,6 @@ const categoryOptions = [
   { value: 'other', label: 'Other' },
 ];
 
-const formatCurrency = (amount) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount);
 
 const InvestmentForm = ({ mode = 'add', investment = {}, onSuccess, onCancel, existingInvestments }) => {
   const isEdit = mode === 'edit';

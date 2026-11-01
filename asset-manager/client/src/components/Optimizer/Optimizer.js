@@ -5,8 +5,8 @@ import toast from 'react-hot-toast';
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatCurrency as currencyFmt } from '../../utils/currency';
 
-const currencyFmt = (n) => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
 
 const classifyScore = (s)=>{
   if(s>=80) return {label:'Excellent', bg:'bg-green-100', text:'text-green-700'};

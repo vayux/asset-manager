@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea } from 'recharts';
 import { addDays, format } from 'date-fns';
+import { formatCurrency } from '../../utils/currency';
 
-const formatCurrency = (amt)=> new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(amt);
 
 const generateIncomeDates = (inc, windowDays=30)=>{
   const today = new Date();

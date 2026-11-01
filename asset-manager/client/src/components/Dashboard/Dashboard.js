@@ -15,6 +15,7 @@ import CashFlowForecast from './CashFlowForecast';
 import MonthlySummary from './MonthlySummary';
 import OverspendAlert from './OverspendAlert';
 import { getCategoryDisplayName } from '../../constants/categories';
+import { formatCurrency } from '../../utils/currency';
 
 const Dashboard = () => {
   const [portfolioData, setPortfolioData] = useState(null);
@@ -70,14 +71,6 @@ const Dashboard = () => {
     }
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const preparePieChartData = () => {
     if (!portfolioData?.categoryBreakdown) return [];

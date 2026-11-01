@@ -4,8 +4,8 @@ import { PlusIcon, TrashIcon, FunnelIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { format, addMonths } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { formatCurrency as currencyFmt } from '../../utils/currency';
 
-const currencyFmt = (n) => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
 
 const Goals = () => {
   const [goals, setGoals] = useState([]);

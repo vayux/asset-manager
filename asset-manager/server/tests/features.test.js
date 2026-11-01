@@ -2,7 +2,7 @@ const request = require('supertest');
 const app = require('../index');
 const { sequelize } = require('../config/database');
 const { resetDatabase } = require('./db');
-const { Investment } = require('../models');
+const { Investment, InvestmentHistory } = require('../models');
 const emailService = require('../utils/emailService');
 
 if (!process.env.DB_NAME.endsWith('_test')) {
@@ -171,5 +171,26 @@ describe('migrations', () => {
     const res = await request(app).post('/api/income').set(headers)
       .send({ name: 'Big', amount: 25000000000, frequency: 'once', nextPayDate: '2026-11-01' });
     expect(res.status).toBe(201);
+  });
+});
+
+describe('portfolio history', () => {
+  it('rebuilds month-end values from valuation history', async () => {
+    const headers = await authed();
+    const month = (offset) => {
+      const d = new Date();
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1)).toISOString().slice(0, 7);
+    };
+    const created = await request(app).post('/api/investments').set(headers).send({
+      name: 'Fund', category: 'mutual_funds', initialAmount: 1000, currentAmount: 1000, investmentDate: `${month(-3)}-05`,
+    });
+    const { id } = created.body.investment;
+    await InvestmentHistory.create({ investmentId: id, valuationDate: `${month(-2)}-15`, amount: 1500 });
+    await Investment.update({ currentAmount: 1800 }, { where: { id } });
+
+    const res = await request(app).get('/api/portfolio/analytics/monthly?limit=5').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.data.map(d => d.month)).toEqual([month(-4), month(-3), month(-2), month(-1), month(0)]);
+    expect(res.body.data.map(d => d.total)).toEqual([0, 1000, 1500, 1500, 1800]);
   });
 });
