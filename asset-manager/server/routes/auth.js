@@ -7,11 +7,15 @@ const {
   validateEmail, 
   validateName, 
   createAuthRateLimit,
+  createLoginEmailRateLimit,
+  createRateLimit,
   sanitizeInput,
   detectSuspiciousInput
 } = require('../utils/validation');
 const { 
   generateTokens, 
+  generateMfaPendingToken,
+  verifyMfaPendingToken,
   verifyRefreshToken,
   securityHeaders
 } = require('../utils/security');
@@ -26,7 +30,50 @@ router.use(securityHeaders);
 // Apply rate limiting to auth routes
 const authRateLimit = createAuthRateLimit();
 router.use('/login', authRateLimit);
+router.post('/login', createLoginEmailRateLimit());
 router.use('/register', authRateLimit);
+router.use('/refresh', createRateLimit({ max: 60, message: 'Too many token refresh attempts. Please try again later.' }));
+
+const MAX_EMAIL_OTP_ATTEMPTS = 5;
+
+// Keyed by the account behind the MFA challenge so IP rotation does not help
+const pendingUserKey = (req) => {
+  try {
+    return `mfa:${verifyMfaPendingToken(req.body?.mfaPendingToken).userId}`;
+  } catch (error) {
+    return `mfa-ip:${req.ip}`;
+  }
+};
+const mfaVerifyLimit = createRateLimit({ max: 10, keyGenerator: pendingUserKey, skipSuccessfulRequests: true, message: 'Too many verification attempts. Please try again later.' });
+const emailOtpSendLimit = createRateLimit({ max: 3, keyGenerator: pendingUserKey, message: 'Too many codes requested. Please try again later.' });
+
+const issueSession = async (user, req) => {
+  const tokens = generateTokens(user.id);
+  console.log(`User logged in: ${user.id}`);
+  try {
+    await sendSecurityAlert(user, 'Successful Login', req.ip);
+  } catch (emailError) {
+    console.error('Failed to send login notification:', emailError.message);
+  }
+  return {
+    success: true,
+    message: 'Login successful',
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: user.toJSON(),
+  };
+};
+
+const loadPendingUser = async (token) => {
+  let decoded;
+  try {
+    decoded = verifyMfaPendingToken(token);
+  } catch (error) {
+    return null;
+  }
+  const user = await User.findByPk(decoded.userId);
+  return user && user.isActive && user.mfaEnabled ? user : null;
+};
 
 // Register route
 router.post('/register', [
@@ -208,86 +255,93 @@ router.post('/login', [
       });
     }
 
-    // Check if MFA is enabled
     if (user.mfaEnabled) {
-      const { mfaToken, backupCode } = req.body;
-      
-      if (!mfaToken && !backupCode) {
-        return res.status(200).json({
-          message: 'MFA verification required',
-          requiresMFA: true,
-          userId: user.id, // Temporary identifier for MFA verification
-          code: 'MFA_REQUIRED'
-        });
-      }
-
-      let mfaValid = false;
-
-      // Try TOTP token first
-      if (mfaToken && user.mfaSecret) {
-        mfaValid = mfaUtils.verifyTOTP(mfaToken, user.mfaSecret);
-      }
-
-      // Try backup code if TOTP failed
-      if (!mfaValid && backupCode && user.backupCodes) {
-        const backupResult = mfaUtils.verifyBackupCode(backupCode, user.backupCodes);
-        if (backupResult.valid) {
-          mfaValid = true;
-          // Update remaining backup codes
-          await user.update({ backupCodes: backupResult.remainingCodes });
-        }
-      }
-
-      if (!mfaValid) {
-        console.warn(`Failed MFA attempt for user: ${user.id} from IP: ${req.ip}. Token: ${mfaToken ? 'provided' : 'not provided'}, Backup: ${backupCode ? 'provided' : 'not provided'}`);
-        return res.status(401).json({ 
-          message: 'Invalid MFA token or backup code',
-          code: 'INVALID_MFA'
-        });
-      }
+      return res.json({
+        success: true,
+        requiresMFA: true,
+        code: 'MFA_REQUIRED',
+        message: 'MFA verification required',
+        mfaPendingToken: generateMfaPendingToken(user.id),
+        methods: ['totp', 'backup', ...(mfaUtils.isEmailConfigured() ? ['email'] : [])],
+      });
     }
 
-    const tokens = generateTokens(user.id);
-    const responseData = {
-      success: true,
-      message: 'Login successful',
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user: user.toJSON(),
-    };
-
-    // Log successful login (without sensitive data)
-    console.log(`User logged in: ${user.id} (${email}) from IP: ${req.ip}`);
-
-    // Send security alert email for login (optional - only if enabled)
-    try {
-      await sendSecurityAlert(
-        user, 
-        'Successful Login', 
-        req.ip || req.connection.remoteAddress
-      );
-    } catch (emailError) {
-      console.error('Failed to send login notification:', emailError);
-      // Don't fail the login if email fails
-    }
-
-    res.json(responseData);
+    res.json(await issueSession(user, req));
   } catch (error) {
     console.error('Login error:', error);
-    
-    // Don't expose internal errors in production
-    if (process.env.NODE_ENV === 'production') {
-      res.status(500).json({ 
-        message: 'Login failed. Please try again.',
-        code: 'LOGIN_ERROR'
-      });
-    } else {
-      res.status(500).json({ 
-        message: 'Login failed',
-        error: error.message
-      });
+    res.status(500).json({ message: 'Login failed. Please try again.', code: 'LOGIN_ERROR' });
+  }
+});
+
+// Second login step: exchange the MFA challenge token plus a code for a session
+router.post('/login/mfa', mfaVerifyLimit, [
+  body('mfaPendingToken').isString().notEmpty(),
+  body('method').isIn(['totp', 'backup', 'email']),
+  body('code').isString().trim().isLength({ min: 6, max: 16 }),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+
+  const { mfaPendingToken, method, code } = req.body;
+  const user = await loadPendingUser(mfaPendingToken);
+  if (!user) {
+    return res.status(401).json({ message: 'MFA session expired. Please sign in again.', code: 'MFA_SESSION_INVALID' });
+  }
+
+  let valid = false;
+  if (method === 'totp' && user.mfaSecret) {
+    valid = mfaUtils.verifyTOTP(code, user.mfaSecret);
+  } else if (method === 'backup') {
+    const result = mfaUtils.verifyBackupCode(code, user.backupCodes);
+    if (result.valid) {
+      valid = true;
+      await user.update({ backupCodes: result.remainingCodes });
+    }
+  } else if (method === 'email') {
+    valid = mfaUtils.verifyEmailOTP(mfaUtils.hashSecret(code), user.emailOtpSecret, user.emailOtpExpiry);
+    if (valid) {
+      await user.update({ emailOtpSecret: null, emailOtpExpiry: null, emailOtpAttempts: 0 });
+    } else if (user.emailOtpSecret) {
+      const attempts = user.emailOtpAttempts + 1;
+      await user.update(attempts >= MAX_EMAIL_OTP_ATTEMPTS
+        ? { emailOtpSecret: null, emailOtpExpiry: null, emailOtpAttempts: 0 }
+        : { emailOtpAttempts: attempts });
     }
   }
+
+  if (!valid) {
+    console.warn(`Failed MFA attempt (${method}) for user: ${user.id}`);
+    return res.status(401).json({ message: 'Invalid verification code', code: 'INVALID_MFA' });
+  }
+
+  res.json(await issueSession(user, req));
+});
+
+// Email a one-time code for the pending MFA login
+router.post('/login/email-otp', emailOtpSendLimit, [
+  body('mfaPendingToken').isString().notEmpty(),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+  }
+  if (!mfaUtils.isEmailConfigured()) {
+    return res.status(503).json({ message: 'Email service not configured' });
+  }
+
+  const user = await loadPendingUser(req.body.mfaPendingToken);
+  if (!user) {
+    return res.status(401).json({ message: 'MFA session expired. Please sign in again.', code: 'MFA_SESSION_INVALID' });
+  }
+
+  const { otp, expiry } = mfaUtils.generateEmailOTP();
+  // Persist before sending so a code that reaches the inbox is always verifiable
+  await user.update({ emailOtpSecret: mfaUtils.hashSecret(otp), emailOtpExpiry: expiry, emailOtpAttempts: 0 });
+  await mfaUtils.sendEmailOTP(user.email, otp, user.firstName);
+
+  res.json({ success: true, message: 'Verification code sent to your email' });
 });
 
 // Refresh token route

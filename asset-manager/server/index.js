@@ -23,6 +23,11 @@ const goalsRoutes = require('./routes/goals');
 const optimizerRoutes = require('./routes/optimizer');
 
 const app = express();
+// Number of reverse proxies in front of the API (e.g. 1 behind nginx/ELB). Leave unset when exposed directly,
+// otherwise clients could spoof X-Forwarded-For and evade IP rate limits.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number.isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY));
+}
 const PORT = process.env.PORT || 5001;
 
 // Security middleware

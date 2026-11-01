@@ -110,7 +110,7 @@ class MFAUtils {
    * Generate email OTP
    */
   generateEmailOTP() {
-    const otp = crypto.randomInt(100000, 999999).toString(); // 6-digit OTP
+    const otp = crypto.randomInt(100000, 1000000).toString(); // 6-digit OTP
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     return { otp, expiry };
   }
@@ -166,7 +166,9 @@ class MFAUtils {
       return false; // Expired
     }
 
-    return inputOtp === storedOtp;
+    const input = Buffer.from(String(inputOtp), 'utf8');
+    const stored = Buffer.from(String(storedOtp), 'utf8');
+    return input.length === stored.length && crypto.timingSafeEqual(input, stored);
   }
 
   /**

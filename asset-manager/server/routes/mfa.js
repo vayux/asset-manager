@@ -3,10 +3,10 @@ const router = express.Router();
 const { User } = require('../models');
 const auth = require('../middleware/auth');
 const mfaUtils = require('../utils/mfa');
-const { createOtpRateLimit } = require('../utils/validation');
+const { createRateLimit } = require('../utils/validation');
 
-const otpSendLimit = createOtpRateLimit(3);
-const otpVerifyLimit = createOtpRateLimit(5);
+// Every MFA route verifies a password or TOTP code, so throttle failures per client
+router.use(createRateLimit({ max: 20, skipSuccessfulRequests: true, message: 'Too many MFA attempts. Please try again later.' }));
 
 // Get MFA status
 router.get('/status', auth, async (req, res) => {
@@ -269,112 +269,6 @@ router.post('/backup-codes/regenerate', auth, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to regenerate backup codes' 
-    });
-  }
-});
-
-// Send email OTP (for login)
-router.post('/email-otp/send', otpSendLimit, async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email is required' 
-      });
-    }
-
-    if (!mfaUtils.isEmailConfigured()) {
-      return res.status(503).json({ 
-        success: false, 
-        message: 'Email service not configured' 
-      });
-    }
-
-    const user = await User.findOne({ where: { email, isActive: true } });
-    if (!user) {
-      // Don't reveal if user exists
-      return res.json({
-        success: true,
-        message: 'If the email exists, an OTP has been sent'
-      });
-    }
-
-    // Generate and send OTP
-    const { otp, expiry } = mfaUtils.generateEmailOTP();
-    await mfaUtils.sendEmailOTP(email, otp, user.firstName);
-
-    // Store OTP hash
-    const otpHash = mfaUtils.hashSecret(otp);
-    await user.update({
-      emailOtpSecret: otpHash,
-      emailOtpExpiry: expiry
-    });
-
-    res.json({
-      success: true,
-      message: 'OTP sent to your email'
-    });
-  } catch (error) {
-    console.error('Email OTP send error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to send email OTP' 
-    });
-  }
-});
-
-// Verify email OTP (for login)
-router.post('/email-otp/verify', otpVerifyLimit, async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-
-    if (!email || !otp) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email and OTP are required' 
-      });
-    }
-
-    const user = await User.findOne({ where: { email, isActive: true } });
-    if (!user) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid email or OTP' 
-      });
-    }
-
-    // Verify OTP
-    const otpHash = mfaUtils.hashSecret(otp);
-    const isValid = mfaUtils.verifyEmailOTP(
-      otpHash, 
-      user.emailOtpSecret, 
-      user.emailOtpExpiry
-    );
-
-    if (!isValid) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid or expired OTP' 
-      });
-    }
-
-    // Clear used OTP
-    await user.update({
-      emailOtpSecret: null,
-      emailOtpExpiry: null
-    });
-
-    res.json({
-      success: true,
-      message: 'Email OTP verified successfully'
-    });
-  } catch (error) {
-    console.error('Email OTP verification error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to verify email OTP' 
     });
   }
 });

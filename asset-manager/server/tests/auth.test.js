@@ -88,39 +88,148 @@ describe('JWT secret validation', () => {
   });
 });
 
-describe('MFA endpoints', () => {
-  it('no longer exposes the unauthenticated emergency reset', async () => {
-    const res = await request(app).post('/api/mfa/emergency-reset').send(credentials);
-    expect(res.status).toBe(404);
+const speakeasy = require('speakeasy');
+const mfaUtils = require('../utils/mfa');
+
+const enableMfa = async (name) => {
+  const email = `${name}@example.com`;
+  const reg = await request(app).post('/api/auth/register').send({ email, password: credentials.password, firstName: 'Mfa', lastName: 'User' });
+  const authHeader = { Authorization: `Bearer ${reg.body.accessToken}` };
+  const setup = await request(app).post('/api/mfa/setup/totp').set(authHeader).send({});
+  const { secret } = setup.body.data;
+  const verify = await request(app).post('/api/mfa/setup/verify').set(authHeader)
+    .send({ token: speakeasy.totp({ secret, encoding: 'base32' }) });
+  expect(verify.status).toBe(200);
+  return { email, secret, backupCodes: verify.body.data.backupCodes, id: reg.body.user.id };
+};
+
+const startLogin = async (email) => {
+  const res = await request(app).post('/api/auth/login').send({ email, password: credentials.password });
+  expect(res.status).toBe(200);
+  return res.body;
+};
+
+const finishLogin = (mfaPendingToken, method, code) => request(app)
+  .post('/api/auth/login/mfa').send({ mfaPendingToken, method, code });
+
+describe('MFA login challenge', () => {
+  let dave;
+  beforeAll(async () => {
+    dave = await enableMfa('dave');
   });
 
-  it('limits email OTP verification attempts per email', async () => {
-    const attempt = (email) => request(app).post('/api/mfa/email-otp/verify').send({ email, otp: '123456' });
-    for (let i = 0; i < 5; i += 1) {
-      expect((await attempt(credentials.email)).status).toBe(400);
-    }
-    expect((await attempt(credentials.email)).status).toBe(429);
-    expect((await attempt(credentials.email.toUpperCase())).status).toBe(429);
-    expect((await attempt('someone-else@example.com')).status).toBe(400);
+  it('no longer exposes the unauthenticated emergency reset or email-OTP routes', async () => {
+    expect((await request(app).post('/api/mfa/emergency-reset').send(credentials)).status).toBe(404);
+    expect((await request(app).post('/api/mfa/email-otp/send').send({ email: dave.email })).status).toBe(404);
+    expect((await request(app).post('/api/mfa/email-otp/verify').send({ email: dave.email, otp: '123456' })).status).toBe(404);
   });
 
-  it('limits email OTP sends per email', async () => {
-    const send = () => request(app).post('/api/mfa/email-otp/send').send({ email: credentials.email });
-    for (let i = 0; i < 3; i += 1) {
-      expect((await send()).status).not.toBe(429);
+  it('returns a challenge token instead of a session or user id', async () => {
+    const body = await startLogin(dave.email);
+    expect(body.requiresMFA).toBe(true);
+    expect(body.mfaPendingToken).toBeTruthy();
+    expect(body.userId).toBeUndefined();
+    expect(body.accessToken).toBeUndefined();
+    expect(body.methods).toEqual(expect.arrayContaining(['totp', 'backup']));
+    expect((await profileWith(body.mfaPendingToken)).status).toBe(401);
+  });
+
+  it('rejects a wrong TOTP code and accepts the right one', async () => {
+    const { mfaPendingToken } = await startLogin(dave.email);
+    expect((await finishLogin(mfaPendingToken, 'totp', '000000')).status).toBe(401);
+    const ok = await finishLogin(mfaPendingToken, 'totp', speakeasy.totp({ secret: dave.secret, encoding: 'base32' }));
+    expect(ok.status).toBe(200);
+    expect((await profileWith(ok.body.accessToken)).status).toBe(200);
+  });
+
+  it('accepts a backup code only once', async () => {
+    const [code] = dave.backupCodes;
+    const first = await startLogin(dave.email);
+    expect((await finishLogin(first.mfaPendingToken, 'backup', code)).status).toBe(200);
+    const second = await startLogin(dave.email);
+    expect((await finishLogin(second.mfaPendingToken, 'backup', code)).status).toBe(401);
+  });
+
+  it('rejects forged or non-challenge tokens', async () => {
+    const code = speakeasy.totp({ secret: dave.secret, encoding: 'base32' });
+    const forged = jwt.sign({ userId: dave.id, type: 'mfa_pending' }, 'some-other-secret-value-0123456789abcdef', {
+      issuer: 'asset-manager', audience: 'asset-manager-client',
+    });
+    const res = await finishLogin(forged, 'totp', code);
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('MFA_SESSION_INVALID');
+    expect((await finishLogin(user.accessToken, 'totp', code)).status).toBe(401);
+  });
+
+  describe('email OTP', () => {
+    let sendMail;
+    beforeAll(() => {
+      sendMail = jest.fn().mockResolvedValue(true);
+      jest.spyOn(mfaUtils, 'isEmailConfigured').mockReturnValue(true);
+      mfaUtils.emailTransporter = { sendMail };
+    });
+    afterAll(() => {
+      jest.restoreAllMocks();
+      mfaUtils.emailTransporter = null;
+    });
+
+    const lastOtp = () => sendMail.mock.calls.at(-1)[0].html.match(/>(\d{6})</)[1];
+
+    it('offers email and verifies the emailed code', async () => {
+      const { mfaPendingToken, methods } = await startLogin(dave.email);
+      expect(methods).toContain('email');
+      expect((await request(app).post('/api/auth/login/email-otp').send({ mfaPendingToken })).status).toBe(200);
+      expect((await finishLogin(mfaPendingToken, 'email', lastOtp())).status).toBe(200);
+    });
+
+    it('invalidates the code after 5 wrong attempts', async () => {
+      const { mfaPendingToken } = await startLogin(dave.email);
+      await request(app).post('/api/auth/login/email-otp').send({ mfaPendingToken });
+      const otp = lastOtp();
+      const wrong = otp === '111111' ? '222222' : '111111';
+      for (let i = 0; i < 5; i += 1) {
+        expect((await finishLogin(mfaPendingToken, 'email', wrong)).status).toBe(401);
+      }
+      expect((await finishLogin(mfaPendingToken, 'email', otp)).status).toBe(401);
+    });
+  });
+
+  it('limits verification attempts per account', async () => {
+    const erin = await enableMfa('erin');
+    let last;
+    for (let i = 0; i < 11; i += 1) {
+      const { mfaPendingToken } = await startLogin(erin.email);
+      last = await finishLogin(mfaPendingToken, 'totp', '000000');
     }
-    expect((await send()).status).toBe(429);
+    expect(last.status).toBe(429);
   });
 });
 
-describe('login rate limit', () => {
-  it('cannot be bypassed by changing the User-Agent', async () => {
+describe('rate limits', () => {
+  it('throttles token refresh', async () => {
     let last;
-    for (let i = 0; i < 51; i += 1) {
+    for (let i = 0; i < 61; i += 1) {
+      last = await request(app).post('/api/auth/refresh').send({ refreshToken: 'bogus' });
+    }
+    expect(last.status).toBe(429);
+  });
+
+  it('throttles failed logins per account', async () => {
+    const statuses = [];
+    for (let i = 0; i < 31; i += 1) {
+      const res = await request(app).post('/api/auth/login').send({ email: credentials.email, password: 'wrong-password' });
+      statuses.push(res.status);
+    }
+    expect(statuses.at(-1)).toBe(429);
+  });
+
+  it('throttles failed logins per IP even when User-Agent and email change', async () => {
+    let last;
+    for (let i = 0; i < 60 && last?.status !== 429; i += 1) {
       last = await request(app)
         .post('/api/auth/login')
         .set('User-Agent', `agent-${i}`)
-        .send({ email: credentials.email, password: 'wrong-password' });
+        .send({ email: `nobody-${i}@example.com`, password: 'wrong-password' });
     }
     expect(last.status).toBe(429);
   });

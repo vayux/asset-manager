@@ -58,10 +58,15 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true,
   },
-      emailOtpExpiry: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
+  emailOtpExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  emailOtpAttempts: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+  },
     // Notification preferences
     emailNotifications: {
       type: DataTypes.BOOLEAN,
@@ -106,6 +111,8 @@ User.prototype.toJSON = function() {
   delete values.mfaSecret;
   delete values.backupCodes;
   delete values.emailOtpSecret;
+  delete values.emailOtpExpiry;
+  delete values.emailOtpAttempts;
   return values;
 };
 

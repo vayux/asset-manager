@@ -126,20 +126,28 @@ const createAuthRateLimit = () => {
   });
 };
 
-// Keyed by email so rotating IPs cannot brute-force a single account's OTP
-const createOtpRateLimit = (max) => {
-  return rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max,
-    message: {
-      success: false,
-      message: 'Too many OTP attempts. Please try again later.'
-    },
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => `otp:${String(req.body?.email || '').trim().toLowerCase() || req.ip}`
-  });
-};
+const normalizedEmail = (req) => String(req.body?.email || '').trim().toLowerCase();
+
+// Per-account login limiter so a distributed attack on one email is still throttled
+const createLoginEmailRateLimit = () => rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 10 : 30,
+  message: { error: 'Too many login attempts for this account. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `login:${normalizedEmail(req) || req.ip}`,
+});
+
+const createRateLimit = ({ max, windowMs = 15 * 60 * 1000, keyGenerator, skipSuccessfulRequests = false, message }) => rateLimit({
+  windowMs,
+  max,
+  keyGenerator,
+  skipSuccessfulRequests,
+  message: { success: false, message: message || 'Too many requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Sanitize user input
 const sanitizeInput = (input) => {
@@ -168,7 +176,8 @@ module.exports = {
   validateEmail,
   validateName,
   createAuthRateLimit,
-  createOtpRateLimit,
+  createLoginEmailRateLimit,
+  createRateLimit,
   sanitizeInput,
   detectSuspiciousInput
 }; 

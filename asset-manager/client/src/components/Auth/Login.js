@@ -5,135 +5,104 @@ import { EyeIcon, EyeSlashIcon, ShieldCheckIcon } from '@heroicons/react/24/outl
 import toast from 'react-hot-toast';
 
 const Login = () => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    mfaToken: '',
-    backupCode: ''
-  });
+  const [formData, setFormData] = useState({ email: '', password: '', code: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
-  const [requiresMFA, setRequiresMFA] = useState(false);
-  const [showBackupCode, setShowBackupCode] = useState(false);
+  const [mfa, setMfa] = useState(null); // { token, methods }
+  const [mfaMethod, setMfaMethod] = useState('totp');
 
-  const { login } = useAuth();
+  const { login, completeMfaLogin, sendLoginEmailOtp } = useAuth();
   const navigate = useNavigate();
+  const requiresMFA = !!mfa;
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    
-    // Clear error when user starts typing
+    setFormData(prev => ({ ...prev, [name]: value }));
     if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const resetMfa = () => {
+    setMfa(null);
+    setMfaMethod('totp');
+    setFormData(prev => ({ ...prev, code: '' }));
+  };
+
+  const chooseMethod = async (method) => {
+    setMfaMethod(method);
+    setFormData(prev => ({ ...prev, code: '' }));
+    setErrors({});
+    if (method === 'email') {
+      await sendLoginEmailOtp(mfa.token);
     }
   };
 
   const validateForm = () => {
     const newErrors = {};
-
     if (!formData.email) {
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
-
     if (!formData.password) {
       newErrors.password = 'Password is required';
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validate form for initial login or MFA token when required
-    if (!requiresMFA && !validateForm()) return;
-    
-    // If MFA is required, validate MFA input
+
     if (requiresMFA) {
-      if (!formData.mfaToken && !formData.backupCode) {
-        setErrors({ general: 'Please enter your authenticator code or backup code' });
+      const code = formData.code.trim();
+      if (mfaMethod !== 'backup' && !/^\d{6}$/.test(code)) {
+        setErrors({ general: 'Enter the 6-digit code' });
         return;
       }
-      if (formData.mfaToken && formData.mfaToken.length !== 6) {
-        setErrors({ general: 'Authenticator code must be 6 digits' });
+      if (mfaMethod === 'backup' && code.length < 6) {
+        setErrors({ general: 'Enter a valid backup code' });
         return;
       }
+    } else if (!validateForm()) {
+      return;
     }
-    
+
     setLoading(true);
     setErrors({});
-    
     try {
-      const loginData = {
-        email: formData.email,
-        password: formData.password,
-      };
-
-      // Add MFA token if provided
-      if (formData.mfaToken) {
-        loginData.mfaToken = formData.mfaToken;
-      } else if (formData.backupCode) {
-        loginData.backupCode = formData.backupCode;
+      if (!requiresMFA) {
+        const result = await login(formData.email, formData.password);
+        if (result.requiresMFA) {
+          setMfa({ token: result.mfaPendingToken, methods: result.methods });
+          toast('Please enter your 2FA code to continue');
+        } else if (result.success) {
+          navigate('/dashboard');
+        } else {
+          setErrors({ general: result.error });
+        }
+        return;
       }
 
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginData)
-      });
-
-      const data = await response.json();
-
-      if (data.requiresMFA && !requiresMFA) {
-        // First time - MFA is required
-        setRequiresMFA(true);
-        toast('Please enter your 2FA code to continue');
-      } else if (data.success && (data.accessToken || data.token)) {
-        // Login successful - set tokens and reload to update auth state
-        const { accessToken, refreshToken, token, user } = data;
-        const authToken = accessToken || token;
-        
-        if (accessToken && refreshToken) {
-          localStorage.setItem('accessToken', accessToken);
-          localStorage.setItem('refreshToken', refreshToken);
-          localStorage.removeItem('token');
-        } else if (token) {
-          localStorage.setItem('token', token);
-        }
-        
-        toast.success('Login successful!');
-        // Reload the page to let AuthContext pick up the new tokens
-        window.location.href = '/dashboard';
+      const result = await completeMfaLogin(mfa.token, mfaMethod, formData.code.trim());
+      if (result.success) {
+        navigate('/dashboard');
+      } else if (result.sessionExpired) {
+        resetMfa();
+        setErrors({ general: result.error });
       } else {
-        // Login failed
-        const errorMessage = data.message || 'Login failed';
-        setErrors({ general: errorMessage });
-        toast.error(errorMessage);
-        
-        // If MFA verification failed, don't reset the MFA state
-        if (!data.message?.includes('Invalid') && !data.message?.includes('code')) {
-          setRequiresMFA(false);
-        }
+        setErrors({ general: result.error });
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      setErrors({ general: 'Login failed. Please try again.' });
-      toast.error('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  const codeLabel = { totp: 'Authenticator Code', backup: 'Backup Code', email: 'Email Code' }[mfaMethod];
+  const otherMethods = (mfa?.methods || ['totp', 'backup']).filter(m => m !== mfaMethod);
+  const methodLabel = { totp: 'Use authenticator app', backup: 'Use backup code', email: 'Email me a code' };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -223,84 +192,45 @@ const Login = () => {
                   </div>
                 </div>
 
-                {!showBackupCode ? (
-                  <div>
-                    <label htmlFor="mfaToken" className="form-label">
-                      Authenticator Code
-                    </label>
-                    <input
-                      id="mfaToken"
-                      name="mfaToken"
-                      type="text"
-                      value={formData.mfaToken}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        mfaToken: e.target.value.replace(/\D/g, '').slice(0, 6),
-                        backupCode: '' // Clear backup code when entering MFA token
-                      })}
-                      placeholder="000000"
-                      maxLength="6"
-                      className="form-input text-center text-lg tracking-widest"
-                    />
-                    <div className="flex justify-between mt-2">
+                <div>
+                  <label htmlFor="code" className="form-label">
+                    {codeLabel}
+                  </label>
+                  <input
+                    id="code"
+                    name="code"
+                    type="text"
+                    autoComplete="one-time-code"
+                    value={formData.code}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      code: mfaMethod === 'backup'
+                        ? e.target.value.toUpperCase().slice(0, 16)
+                        : e.target.value.replace(/\D/g, '').slice(0, 6),
+                    })}
+                    placeholder={mfaMethod === 'backup' ? 'Enter backup code' : '000000'}
+                    className="form-input text-center text-lg tracking-widest"
+                  />
+                  <div className="flex flex-wrap justify-between gap-2 mt-2">
+                    {otherMethods.map(method => (
                       <button
+                        key={method}
                         type="button"
-                        onClick={() => setShowBackupCode(true)}
+                        onClick={() => chooseMethod(method)}
                         className="text-sm text-primary-600 hover:text-primary-500"
                       >
-                        Use backup code instead
+                        {methodLabel[method]}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRequiresMFA(false);
-                          setFormData({ ...formData, mfaToken: '', backupCode: '' });
-                        }}
-                        className="text-sm text-gray-600 hover:text-gray-800"
-                      >
-                        ← Back to login
-                      </button>
-                    </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={resetMfa}
+                      className="text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      ← Back to login
+                    </button>
                   </div>
-                ) : (
-                  <div>
-                    <label htmlFor="backupCode" className="form-label">
-                      Backup Code
-                    </label>
-                    <input
-                      id="backupCode"
-                      name="backupCode"
-                      type="text"
-                      value={formData.backupCode}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        backupCode: e.target.value.toUpperCase(),
-                        mfaToken: '' // Clear MFA token when entering backup code
-                      })}
-                      placeholder="Enter backup code"
-                      className="form-input text-center"
-                    />
-                    <div className="flex justify-between mt-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowBackupCode(false)}
-                        className="text-sm text-primary-600 hover:text-primary-500"
-                      >
-                        Use authenticator code instead
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRequiresMFA(false);
-                          setFormData({ ...formData, mfaToken: '', backupCode: '' });
-                        }}
-                        className="text-sm text-gray-600 hover:text-gray-800"
-                      >
-                        ← Back to login
-                      </button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
             )}
 

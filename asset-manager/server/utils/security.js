@@ -45,6 +45,26 @@ const verifyAccessToken = (token) => {
   }
 };
 
+const JWT_OPTIONS = { issuer: 'asset-manager', audience: 'asset-manager-client' };
+
+// Short-lived token proving the password step passed; only accepted by the MFA login step
+const generateMfaPendingToken = (userId) => jwt.sign(
+  { userId, type: 'mfa_pending' },
+  process.env.JWT_SECRET,
+  { ...JWT_OPTIONS, expiresIn: '5m' }
+);
+
+const verifyMfaPendingToken = (token) => {
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET, JWT_OPTIONS);
+  } catch (error) {
+    throw new Error('Invalid or expired MFA session');
+  }
+  if (decoded.type !== 'mfa_pending') throw new Error('Invalid or expired MFA session');
+  return decoded;
+};
+
 // Verify refresh token
 const verifyRefreshToken = (token) => {
   try {
@@ -137,6 +157,8 @@ const generateSessionId = () => {
 
 module.exports = {
   generateTokens,
+  generateMfaPendingToken,
+  verifyMfaPendingToken,
   verifyAccessToken,
   verifyRefreshToken,
   generateSecureToken,

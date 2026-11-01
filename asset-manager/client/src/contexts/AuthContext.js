@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }) => {
   // Set up axios interceptor for token
   useEffect(() => {
     // Support both old and new token storage formats
-    const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+    const accessToken = localStorage.getItem('accessToken');
     if (accessToken) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
     }
@@ -110,7 +110,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const initializeAuth = async () => {
       // Support both old and new token storage formats
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = localStorage.getItem('accessToken');
       if (accessToken) {
         try {
           const response = await axios.get('/api/auth/profile');
@@ -140,82 +140,69 @@ export const AuthProvider = ({ children }) => {
     initializeAuth();
   }, []);
 
+  const storeSession = ({ accessToken, refreshToken, user: sessionUser }) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    localStorage.removeItem('token');
+    axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+    setUser(sessionUser);
+  };
+
+  const reportErrors = (error, fallback) => {
+    const message = error.response?.data?.message || fallback;
+    const errors = error.response?.data?.errors;
+    if (errors && Array.isArray(errors)) {
+      errors.forEach(err => toast.error(err.message || err.msg));
+    } else {
+      toast.error(message);
+    }
+    return { success: false, error: message, errors };
+  };
+
   const login = async (email, password) => {
     try {
-      const response = await axios.post('/api/auth/login', {
-        email,
-        password,
-      });
-
-      // Support both old and new response formats
-      const { accessToken, refreshToken, token, user } = response.data;
-      const authToken = accessToken || token;
-      
-      if (accessToken && refreshToken) {
-        // New format with refresh tokens
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', refreshToken);
-        // Clean up old token if it exists
-        localStorage.removeItem('token');
-      } else if (token) {
-        // Old format - keep for backward compatibility
-        localStorage.setItem('token', token);
+      const { data } = await axios.post('/api/auth/login', { email, password });
+      if (data.requiresMFA) {
+        return { success: true, requiresMFA: true, mfaPendingToken: data.mfaPendingToken, methods: data.methods || [] };
       }
-      
-      axios.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
-      setUser(user);
-      
+      storeSession(data);
       toast.success('Login successful!');
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
-      const errors = error.response?.data?.errors;
-      
-      if (errors && Array.isArray(errors)) {
-        errors.forEach(err => toast.error(err.message));
-      } else {
-        toast.error(message);
-      }
-      
-      return { success: false, error: message, errors };
+      return reportErrors(error, 'Login failed');
+    }
+  };
+
+  const completeMfaLogin = async (mfaPendingToken, method, code) => {
+    try {
+      const { data } = await axios.post('/api/auth/login/mfa', { mfaPendingToken, method, code });
+      storeSession(data);
+      toast.success('Login successful!');
+      return { success: true };
+    } catch (error) {
+      const sessionExpired = error.response?.data?.code === 'MFA_SESSION_INVALID';
+      return { ...reportErrors(error, 'Verification failed'), sessionExpired };
+    }
+  };
+
+  const sendLoginEmailOtp = async (mfaPendingToken) => {
+    try {
+      await axios.post('/api/auth/login/email-otp', { mfaPendingToken });
+      toast.success('Verification code sent to your email');
+      return { success: true };
+    } catch (error) {
+      return reportErrors(error, 'Could not send verification code');
     }
   };
 
   const register = async (userData) => {
     try {
-      const response = await axios.post('/api/auth/register', userData);
-
-      // Support both old and new response formats
-      const { accessToken, refreshToken, token, user } = response.data;
-      const authToken = accessToken || token;
-      
-      if (accessToken && refreshToken) {
-        // New format with refresh tokens
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', refreshToken);
-        // Clean up old token if it exists
-        localStorage.removeItem('token');
-      } else if (token) {
-        // Old format - keep for backward compatibility
-        localStorage.setItem('token', token);
-      }
-      
-      axios.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
-      setUser(user);
-      
+      const { data } = await axios.post('/api/auth/register', userData);
+      storeSession(data);
       toast.success('Account created successfully!');
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed';
-      const errors = error.response?.data?.errors;
-      
-      if (errors && Array.isArray(errors)) {
-        errors.forEach(err => toast.error(err.message));
-      } else {
-        toast.error(message);
-      }
-      
-      return { success: false, error: message, errors };
+      return reportErrors(error, 'Registration failed');
     }
   };
 
@@ -246,6 +233,8 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     login,
+    completeMfaLogin,
+    sendLoginEmailOtp,
     register,
     logout,
     updateProfile,
