@@ -1,5 +1,5 @@
 // Static, educational watchlists. No live prices: each row links to its NSE quote page.
-export const LAST_REVIEWED = 'November 2026';
+export const LAST_REVIEWED = 'October 2026';
 
 export const LONG_TERM = [
   { symbol: 'HDFCBANK', name: 'HDFC Bank', sector: 'Private bank', thesis: 'Largest private lender; long record of steady loan growth and asset quality.' },
