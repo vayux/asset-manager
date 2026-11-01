@@ -13,6 +13,9 @@ A comprehensive web application for tracking and managing personal investments, 
 - **Wealth Optimizer**: Financial-Health score (with debt-ratio & savings-rate metrics and expandable "How is the score calculated?" panel) plus Tax-Loss Harvest suggestions (investments down ≥10% vs. cost basis) – each metric includes clear "lower is better / higher is better" notes.
 - **Responsive Design**: Modern, mobile-friendly interface
 - **Real-time Updates**: Live portfolio value calculations
+- **Multi-currency**: each investment, asset and liability has its own currency; totals are converted to ₹ using Yahoo Finance FX rates, then the ECB feed (frankfurter.app), then rates you enter in Settings → Currencies
+- **Document attachments**: attach PDFs or images (up to 10 MB) to investments, assets and liabilities; stored in a private Supabase Storage bucket, or on the server's disk when Supabase isn't configured
+- **Research**: long/mid-term watchlists with live NSE prices (educational, not advice)
 
 ### Planned Features
 - **Investment CRUD Operations**: Full create, read, update, delete for investments
@@ -33,7 +36,8 @@ A comprehensive web application for tracking and managing personal investments, 
 - **Express Validator** for input validation
 
 ### Frontend
-- **React 18** with functional components and hooks
+- **React 18** with functional components and hooks, built with **Vite** and tested with **Vitest**
+- **TanStack Query** for server state, one shared Axios client in `src/api/client.js`
 - **React Router** for navigation
 - **Tailwind CSS** for styling
 - **Recharts** for data visualization
@@ -86,9 +90,14 @@ Schema changes must be added as a new numbered migration; models are no longer s
 | server | `npm test` | API tests (jest + supertest) against a Postgres database whose name ends in `_test` (default `asset_manager_test`) |
 | server | `npm run lint` | ESLint |
 | client | `npm run lint` | ESLint, no warnings allowed |
-| client | `npm run build` | Production build |
+| client | `npm test` | Component tests (Vitest + Testing Library) |
+| client | `npm start` | Vite dev server on port 3000, proxying `/api` to port 5001 |
+| client | `npm run build` | Production build into `client/build` |
+| root | `npm run format` | Prettier over the repo |
 
-CI (`.github/workflows/ci.yml`) runs lint, tests and the build on every pull request.
+Run `npm install` in the repo's `asset-manager/` folder once to enable the husky pre-commit hook; it runs Prettier and ESLint on staged files.
+
+CI (`.github/workflows/ci.yml`) runs `npm audit --omit=dev --audit-level=high`, lint, tests and the build on every pull request.
 
 ## API Endpoints
 
@@ -107,6 +116,9 @@ All endpoints except register, login and refresh require `Authorization: Bearer 
 | Budget `/api/budget` | `GET /categories`, `POST /categories`, `PUT /categories/:id`, `DELETE /categories/:id`, `GET /entries`, `POST /entries` |
 | Goals `/api/goals` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/projection`, `GET /:id/projection/montecarlo` |
 | Optimizer `/api/optimizer` | `GET /health`, `GET /tax-loss`, `GET /recommendations` |
+| Research `/api/research` | `GET /quotes?symbols=TCS,INFY` |
+| Exchange rates `/api/fx` | `GET /rates`, `PUT /rates/:currency` (manual rate), `DELETE /rates/:currency` |
+| Attachments `/api/attachments` | `GET /?entityType=&entityId=`, `POST /` (multipart: `entityType`, `entityId`, `file`), `GET /:id/download`, `DELETE /:id` |
 
 Deleting investments, assets and liabilities archives them (`isActive = false`); archived items are excluded from totals.
 
@@ -123,8 +135,13 @@ The system supports the following investment categories:
 - Gold
 - Real Estate
 - Cryptocurrency
-- Personal Loan
 - Other
+
+`personal_loan` investments and `stocks` assets can no longer be created: personal loans belong under Liabilities and shares under Investments. Existing rows with those categories are kept and still editable.
+
+## Attachments storage
+
+Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and optionally `SUPABASE_BUCKET` (default `attachments`) in `server/.env` to store files in Supabase Storage. Create the bucket as **private** in the Supabase dashboard; the service-role key stays on the server and downloads go through the API's owner check. Without these, files go to `UPLOAD_DIR` (Docker Compose mounts the `uploads` volume there).
 
 ## Usage
 
