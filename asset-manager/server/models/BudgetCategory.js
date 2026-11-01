@@ -34,6 +34,7 @@ const BudgetCategory = sequelize.define('BudgetCategory', {
   },
 }, {
   tableName: 'budget_categories',
+  indexes: [{ name: 'budget_categories_user_id', fields: ['user_id'] }],
   underscored: true,
 });
 

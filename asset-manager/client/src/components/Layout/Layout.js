@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import axios from 'axios';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   HomeIcon,
@@ -17,6 +19,7 @@ import {
   ChevronDoubleLeftIcon,
   ChevronDoubleRightIcon,
   Cog6ToothIcon,
+  DocumentMagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 
 const Layout = ({ children }) => {
@@ -25,6 +28,14 @@ const Layout = ({ children }) => {
   });
   const [collapsed, setCollapsed] = useState(() => JSON.parse(localStorage.getItem('sidebarCollapsed') || 'false'));
   const { user, logout } = useAuth();
+  const resendVerification = async () => {
+    try {
+      const { data } = await axios.post('/api/auth/resend-verification');
+      toast.success(data.message);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not send verification email');
+    }
+  };
   const location = useLocation();
 
   const handleSidebarToggle = (open) => {
@@ -47,6 +58,7 @@ const Layout = ({ children }) => {
     { name: 'Portfolio', href: '/portfolio', icon: Squares2X2Icon, current: location.pathname === '/portfolio', primary: false },
     { name: 'Goals', href: '/goals', icon: TrophyIcon, current: location.pathname === '/goals', primary: false },
     { name: 'Optimizer', href: '/optimizer', icon: LightBulbIcon, current: location.pathname === '/optimizer', primary: false },
+    { name: 'Research', href: '/research', icon: DocumentMagnifyingGlassIcon, current: location.pathname === '/research', primary: false },
     { name: 'Quickstart', href: '/quickstart', icon: RocketLaunchIcon, current: location.pathname === '/quickstart', primary: false },
     { name: 'Settings', href: '/settings', icon: Cog6ToothIcon, current: location.pathname === '/settings', primary: false },
   ];
@@ -156,6 +168,12 @@ const Layout = ({ children }) => {
         {/* Main content area */}
         <main className="flex-1 overflow-y-auto">
           <div className="py-6 px-4 sm:px-6 lg:px-8">
+            {user && !user.emailVerifiedAt && (
+              <div className="mb-4 rounded-md bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800 flex items-center justify-between">
+                <span>Please confirm your email address ({user.email}).</span>
+                <button type="button" onClick={resendVerification} className="font-medium underline">Resend email</button>
+              </div>
+            )}
             {children}
           </div>
         </main>

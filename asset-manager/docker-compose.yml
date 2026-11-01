@@ -1,0 +1,54 @@
+# Local development stack: Postgres, API on :5001, React dev server on :3000.
+# Requires server/.env (copy server/.env.example and set the JWT secrets).
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: asset_manager
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  server:
+    image: node:20
+    working_dir: /app/server
+    command: sh -c "npm ci && npm run dev"
+    env_file: ./server/.env
+    environment:
+      DB_HOST: db
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_NAME: asset_manager
+    ports:
+      - "5001:5001"
+      - "3000:3000"
+    volumes:
+      - ./server:/app/server
+      - /app/server/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+
+  client:
+    image: node:20
+    working_dir: /app/client
+    command: sh -c "npm ci && npm start"
+    # Shares the server's network so the CRA proxy to localhost:5001 works
+    network_mode: "service:server"
+    environment:
+      BROWSER: none
+    volumes:
+      - ./client:/app/client
+      - /app/client/node_modules
+    depends_on:
+      - server
+
+volumes:
+  pgdata:

@@ -43,119 +43,72 @@ A comprehensive web application for tracking and managing personal investments, 
 ## Getting Started
 
 ### Prerequisites
-- Node.js (v16 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
+- Node.js 20
+- PostgreSQL 15 (or Docker)
 
-### Installation
+### Option A: Docker Compose
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd money-mind
-   ```
+```bash
+cp server/.env.example server/.env   # then set JWT_SECRET and JWT_REFRESH_SECRET
+docker compose up
+```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   npm run install-all
-   ```
+This starts Postgres, the API on http://localhost:5001 and the React app on http://localhost:3000.
 
-3. **Database Setup**
-   - Create a PostgreSQL database named `money_mind`
-   - Update database credentials in `server/.env` (create from example below)
+### Option B: run locally
 
-4. **Environment Configuration**
-   Create `server/.env` file:
-   ```env
-   PORT=5000
-   NODE_ENV=development
-   
-   # Database Configuration
-   DB_HOST=localhost
-   DB_PORT=5432
-   DB_NAME=money_mind
-   DB_USER=your_username
-   DB_PASSWORD=your_password
-   
-   # JWT Secret
-   JWT_SECRET=your_very_secure_jwt_secret_key_here
-   JWT_EXPIRE=7d
-   
-   # CORS
-   CLIENT_URL=http://localhost:3000
-   ```
+1. Install dependencies: `npm run install-all`
+2. Create a Postgres database named `asset_manager`.
+3. `cp server/.env.example server/.env` and fill it in. `JWT_SECRET` and `JWT_REFRESH_SECRET` must be two different random
+   values of at least 32 characters (`openssl rand -hex 32`); the server will not start otherwise.
+4. `npm run dev` starts the API (port 5001) and the client (port 3000). The client proxies `/api` to the API.
 
-5. **Run the application**
-   ```bash
-   npm run dev
-   ```
+### Database migrations
 
-   This will start both the backend server (port 5001) and frontend client (port 3000).
+The schema is managed with [umzug](https://github.com/sequelize/umzug) migrations in `server/migrations/`.
+They run automatically on server start. To run them manually:
 
-### Development Scripts
+```bash
+cd server
+npm run migrate -- up        # apply pending migrations
+npm run migrate -- pending   # list pending migrations
+npm run migrate -- down      # revert the last migration
+```
 
-- `npm run dev` - Start both client and server in development mode
-- `npm run server` - Start only the backend server
-- `npm run client` - Start only the frontend client
-- `npm run build` - Build the frontend for production
+Databases created by older versions (via `sequelize.sync`) are detected and upgraded in place.
+Schema changes must be added as a new numbered migration; models are no longer synced into the database.
 
-## Database Schema
+### Scripts
 
-### Users Table
-- `id` (UUID, Primary Key)
-- `email` (String, Unique)
-- `password` (String, Hashed)
-- `firstName` (String)
-- `lastName` (String)
-- `isActive` (Boolean)
+| Where | Command | What it does |
+|---|---|---|
+| root | `npm run dev` | API and client in watch mode |
+| server | `npm test` | API tests (jest + supertest) against a Postgres database whose name ends in `_test` (default `asset_manager_test`) |
+| server | `npm run lint` | ESLint |
+| client | `npm run lint` | ESLint, no warnings allowed |
+| client | `npm run build` | Production build |
 
-### Investments Table
-- `id` (UUID, Primary Key)
-- `userId` (UUID, Foreign Key)
-- `name` (String)
-- `category` (Enum: bank_account, fixed_deposit, etc.)
-- `subCategory` (String)
-- `currentAmount` (Decimal)
-- `initialAmount` (Decimal)
-- `interestRate` (Decimal)
-- `maturityDate` (Date)
-- `accountNumber` (String)
-- `institutionName` (String)
-- `description` (Text)
-- `isActive` (Boolean)
-
-### Portfolio Snapshots Table
-- `id` (UUID, Primary Key)
-- `userId` (UUID, Foreign Key)
-- `snapshotDate` (Date)
-- `totalValue` (Decimal)
-- `categoryBreakdown` (JSONB)
-- `investments` (JSONB)
-- `notes` (Text)
-- `isManual` (Boolean)
+CI (`.github/workflows/ci.yml`) runs lint, tests and the build on every pull request.
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `GET /api/auth/profile` - Get user profile
-- `PUT /api/auth/profile` - Update user profile
+All endpoints except register, login and refresh require `Authorization: Bearer <access token>`.
 
-### Investments
-- `GET /api/investments` - Get user investments
-- `POST /api/investments` - Create new investment
-- `GET /api/investments/:id` - Get specific investment
-- `PUT /api/investments/:id` - Update investment
-- `DELETE /api/investments/:id` - Delete investment
-- `GET /api/investments/summary/category` - Get category summary
+| Area | Endpoints |
+|---|---|
+| Auth `/api/auth` | `POST /register`, `POST /login`, `POST /login/mfa`, `POST /login/email-otp`, `POST /refresh`, `GET /profile`, `PUT /profile`, `POST /change-password` |
+| MFA `/api/mfa` | `GET /status`, `POST /setup/totp`, `POST /setup/verify`, `POST /disable`, `POST /backup-codes/regenerate` |
+| Settings `/api/settings` | `GET /notifications`, `PUT /notifications` |
+| Investments `/api/investments` | `GET /`, `POST /`, `POST /bulk`, `GET /summary/category`, `GET /:id`, `PUT /:id`, `DELETE /:id`, `POST /:id/value`, `GET /:id/history` |
+| Portfolio `/api/portfolio` | `GET /overview`, `GET /analytics/monthly`, `GET /analytics/stacked`, `POST /snapshot` |
+| Assets `/api/assets` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/valuations`, `POST /:id/valuations` |
+| Liabilities `/api/liabilities` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` |
+| Income `/api/income` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id` |
+| Budget `/api/budget` | `GET /categories`, `POST /categories`, `PUT /categories/:id`, `DELETE /categories/:id`, `GET /entries`, `POST /entries` |
+| Goals `/api/goals` | `GET /`, `POST /`, `PUT /:id`, `DELETE /:id`, `GET /:id/projection`, `GET /:id/projection/montecarlo` |
+| Optimizer `/api/optimizer` | `GET /health`, `GET /tax-loss`, `GET /recommendations` |
 
-### Portfolio
-- `GET /api/portfolio/overview` - Get portfolio overview
-- `POST /api/portfolio/snapshot` - Create portfolio snapshot
-- `GET /api/portfolio/snapshots` - Get portfolio snapshots
-- `GET /api/portfolio/analytics` - Get portfolio analytics
+Deleting investments, assets and liabilities archives them (`isActive = false`); archived items are excluded from totals.
 
 ## Investment Categories
 
@@ -201,7 +154,6 @@ The system supports the following investment categories:
 - SQL injection prevention with Sequelize ORM
 - XSS protection with helmet.js
 - Email notifications for security events and activities
-- Backward compatibility maintained for existing users
 
 ## Email Notifications
 
@@ -218,17 +170,8 @@ The system supports email notifications for various activities:
 - Portfolio updates
 
 ### Configuration
-To enable email notifications, configure the following environment variables in `server/.env`:
-
-```env
-# Email configuration (Gmail SMTP example)
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_SECURE=false
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASS=your-app-password
-EMAIL_FROM=your-email@gmail.com
-```
+Set either the `EMAIL_*` SMTP variables or `GMAIL_USER` + `GMAIL_APP_PASSWORD` in `server/.env` (see `server/.env.example`).
+Login codes, security alerts and investment updates all use the same mailer.
 
 Users can control their notification preferences in the Settings page:
 - **Email Notifications**: General account notifications

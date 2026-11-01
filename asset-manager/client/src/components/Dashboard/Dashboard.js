@@ -15,6 +15,7 @@ import CashFlowForecast from './CashFlowForecast';
 import MonthlySummary from './MonthlySummary';
 import OverspendAlert from './OverspendAlert';
 import { getCategoryDisplayName } from '../../constants/categories';
+import { formatCurrency } from '../../utils/currency';
 
 const Dashboard = () => {
   const [portfolioData, setPortfolioData] = useState(null);
@@ -27,6 +28,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthFilter]);
 
   const fetchDashboardData = async () => {
@@ -69,14 +71,6 @@ const Dashboard = () => {
     }
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
 
   const preparePieChartData = () => {
     if (!portfolioData?.categoryBreakdown) return [];
@@ -141,7 +135,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-6">
         {/* Net Worth */}
         <div className="stat-card">
           <div className="flex items-center">
@@ -150,7 +144,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Net Worth</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(netWorth)}</p>
+              <p className="text-xl font-bold text-gray-900 break-words">{formatCurrency(netWorth)}</p>
             </div>
           </div>
         </div>
@@ -163,7 +157,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Assets</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(assetsTotal)}</p>
+              <p className="text-xl font-bold text-gray-900 break-words">{formatCurrency(assetsTotal)}</p>
             </div>
           </div>
         </Link>
@@ -176,7 +170,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Liabilities</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(liabilitiesTotal)}</p>
+              <p className="text-xl font-bold text-gray-900 break-words">{formatCurrency(liabilitiesTotal)}</p>
           </div>
         </div>
         </Link>
@@ -189,7 +183,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Investments</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(portfolioData?.totalValue||0)}</p>
+              <p className="text-xl font-bold text-gray-900 break-words">{formatCurrency(portfolioData?.totalValue||0)}</p>
             </div>
           </div>
         </div>
@@ -202,7 +196,7 @@ const Dashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Avg Growth / Month</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(avgGrowth)}</p>
+              <p className="text-xl font-bold text-gray-900 break-words">{formatCurrency(avgGrowth)}</p>
             </div>
           </div>
         </div>

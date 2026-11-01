@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { formatCurrency } from '../../utils/currency';
 
 const categoryOptions = [
   { value: 'cash', label: 'Cash' },
@@ -12,19 +13,13 @@ const categoryOptions = [
   { value: 'other', label: 'Other' },
 ];
 
-const formatCurrency = (amount) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount);
 
 const AssetForm = ({ mode = 'add', asset = {}, onSuccess, onCancel }) => {
   const isEdit = mode === 'edit';
   const [formData, setFormData] = useState({
     name: asset?.name || '',
     category: asset?.category || 'cash',
-    currentValue: asset?.currentValue || '',
+    currentValue: asset?.originalValue ?? asset?.currentValue ?? '',
     purchaseDate: asset?.purchaseDate || '',
     depreciationRate: asset?.depreciationRate || '',
   });

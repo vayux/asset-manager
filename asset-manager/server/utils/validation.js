@@ -93,7 +93,7 @@ const validateName = (name, fieldName) => {
   }
 
   // Check for valid characters (letters, spaces, hyphens, apostrophes)
-  if (!/^[a-zA-Z\s\-']+$/.test(trimmedName)) {
+  if (!/^[\p{L}\p{M}\s\-'.]+$/u.test(trimmedName)) {
     errors.push(`${fieldName} can only contain letters, spaces, hyphens, and apostrophes`);
   }
 
@@ -123,19 +123,31 @@ const createAuthRateLimit = () => {
     legacyHeaders: false,
     // Skip successful requests
     skipSuccessfulRequests: true,
-    // Custom key generator to include user agent for better tracking
-    keyGenerator: (req) => {
-      return req.ip + ':' + (req.get('User-Agent') || '').substring(0, 50);
-    }
   });
 };
 
-// Sanitize user input
-const sanitizeInput = (input) => {
-  if (typeof input !== 'string') return input;
-  
-  return validator.escape(input.trim());
-};
+const normalizedEmail = (req) => String(req.body?.email || '').trim().toLowerCase();
+
+// Per-account login limiter so a distributed attack on one email is still throttled
+const createLoginEmailRateLimit = () => rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 10 : 30,
+  message: { error: 'Too many login attempts for this account. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `login:${normalizedEmail(req) || req.ip}`,
+});
+
+const createRateLimit = ({ max, windowMs = 15 * 60 * 1000, keyGenerator, skipSuccessfulRequests = false, message }) => rateLimit({
+  windowMs,
+  max,
+  keyGenerator,
+  skipSuccessfulRequests,
+  message: { success: false, message: message || 'Too many requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Check for suspicious patterns in input
 const detectSuspiciousInput = (input) => {
@@ -157,6 +169,7 @@ module.exports = {
   validateEmail,
   validateName,
   createAuthRateLimit,
-  sanitizeInput,
+  createLoginEmailRateLimit,
+  createRateLimit,
   detectSuspiciousInput
 }; 

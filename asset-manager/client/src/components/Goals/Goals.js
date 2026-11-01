@@ -4,8 +4,8 @@ import { PlusIcon, TrashIcon, FunnelIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { format, addMonths } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { formatCurrency as currencyFmt } from '../../utils/currency';
 
-const currencyFmt = (n) => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
 
 const Goals = () => {
   const [goals, setGoals] = useState([]);
@@ -19,7 +19,6 @@ const Goals = () => {
   const [slider, setSlider] = useState(0);
   const [sliderDirty, setSliderDirty] = useState(false);
   const [adv, setAdv] = useState({percentiles:[], success:null});
-  const todaysMonth = format(new Date(),'yyyy-MM');
   const [investTotal,setInvestTotal]=useState(0); const [assetTotal,setAssetTotal]=useState(0); const [liabTotal,setLiabTotal]=useState(0);
   const [scopeFilter,setScopeFilter]=useState('all');
 
@@ -68,7 +67,6 @@ const Goals = () => {
     if(parseFloat(form.targetAmount)<=0){toast.error('Target amount must be positive');return;}
     if(form.targetDate===''){toast.error('Choose a target date');return;}
     try{
-      let res;
       const payload={
         ...form,
         targetAmount: parseFloat(form.targetAmount||0),
@@ -76,9 +74,9 @@ const Goals = () => {
         monthlyContribution: parseFloat(form.monthlyContribution||0),
       };
       if(editId){
-        res = await axios.put(`/api/goals/${editId}`, payload);
+        await axios.put(`/api/goals/${editId}`, payload);
       }else{
-        res = await axios.post('/api/goals', payload);
+        await axios.post('/api/goals', payload);
       }
       toast.success(editId?'Goal updated':'Goal added');
       setShowAdd(false); setForm(defaultForm); setEditId(null);

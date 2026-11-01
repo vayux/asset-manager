@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const { sequelize } = require('../config/database');
+const { encrypt, decrypt } = require('../utils/secretBox');
 
 const User = sequelize.define('User', {
   id: {
@@ -20,7 +21,7 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: false,
     validate: {
-      len: [6, 100],
+      len: [8, 72],
     },
   },
   firstName: {
@@ -46,8 +47,25 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  // Encrypted at rest; reads return the plain base32 secret
   mfaSecret: {
     type: DataTypes.STRING,
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('mfaSecret');
+      return raw ? decrypt(raw) : raw;
+    },
+    set(value) {
+      this.setDataValue('mfaSecret', value ? encrypt(value) : null);
+    },
+  },
+  // Last accepted TOTP time step, so a code cannot be replayed
+  mfaLastUsedStep: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  emailVerifiedAt: {
+    type: DataTypes.DATE,
     allowNull: true,
   },
   backupCodes: {
@@ -58,10 +76,15 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true,
   },
-      emailOtpExpiry: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
+  emailOtpExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  emailOtpAttempts: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+  },
     // Notification preferences
     emailNotifications: {
       type: DataTypes.BOOLEAN,
@@ -106,6 +129,9 @@ User.prototype.toJSON = function() {
   delete values.mfaSecret;
   delete values.backupCodes;
   delete values.emailOtpSecret;
+  delete values.emailOtpExpiry;
+  delete values.emailOtpAttempts;
+  delete values.mfaLastUsedStep;
   return values;
 };
 

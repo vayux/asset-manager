@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { 
   ShieldCheckIcon, 
@@ -8,9 +7,9 @@ import {
   DocumentDuplicateIcon,
   ExclamationTriangleIcon 
 } from '@heroicons/react/24/outline';
+import { getAccessToken } from '../../contexts/AuthContext';
 
 const MFASetup = () => {
-  const { user } = useAuth();
   const [mfaStatus, setMfaStatus] = useState(null);
   const [setupStep, setSetupStep] = useState('check'); // check, setup, verify, complete
   const [qrCode, setQrCode] = useState('');
@@ -27,7 +26,7 @@ const MFASetup = () => {
 
   const checkMFAStatus = async () => {
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/mfa/status', {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
@@ -46,7 +45,7 @@ const MFASetup = () => {
   const startMFASetup = async () => {
     setLoading(true);
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/mfa/setup/totp', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` }
@@ -77,7 +76,7 @@ const MFASetup = () => {
 
     setLoading(true);
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/mfa/setup/verify', {
         method: 'POST',
         headers: {
@@ -113,7 +112,7 @@ const MFASetup = () => {
 
     setLoading(true);
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/mfa/disable', {
         method: 'POST',
         headers: {
@@ -146,7 +145,7 @@ const MFASetup = () => {
 
     setLoading(true);
     try {
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
+      const accessToken = getAccessToken();
       const response = await fetch('/api/mfa/backup-codes/regenerate', {
         method: 'POST',
         headers: {

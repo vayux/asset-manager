@@ -3,8 +3,11 @@ const router = express.Router();
 const { User } = require('../models');
 const auth = require('../middleware/auth');
 const mfaUtils = require('../utils/mfa');
-const { validateInput } = require('../utils/validation');
-const { body, validationResult } = require('express-validator');
+const { createRateLimit } = require('../utils/validation');
+const { revokeUserSessions } = require('../utils/sessions');
+
+// Every MFA route verifies a password or TOTP code, so throttle failures per client
+router.use(createRateLimit({ max: 20, skipSuccessfulRequests: true, message: 'Too many MFA attempts. Please try again later.' }));
 
 // Get MFA status
 router.get('/status', auth, async (req, res) => {
@@ -97,8 +100,7 @@ router.post('/setup/verify', auth, async (req, res) => {
       });
     }
 
-    // Verify token
-    const isValid = mfaUtils.verifyTOTP(token, user.mfaSecret);
+    const isValid = await mfaUtils.consumeTOTP(user, token);
     if (!isValid) {
       return res.status(400).json({ 
         success: false, 
@@ -112,8 +114,9 @@ router.post('/setup/verify', auth, async (req, res) => {
     // Enable MFA
     await user.update({
       mfaEnabled: true,
-      backupCodes
+      backupCodes: mfaUtils.hashBackupCodes(backupCodes)
     });
+    await revokeUserSessions(user.id, { except: req.sessionId });
 
     res.json({
       success: true,
@@ -172,7 +175,7 @@ router.post('/disable', auth, async (req, res) => {
       // Try TOTP first
       let isValid = false;
       if (user.mfaSecret) {
-        isValid = mfaUtils.verifyTOTP(token, user.mfaSecret);
+        isValid = await mfaUtils.consumeTOTP(user, token);
       }
 
       // Try backup code if TOTP failed
@@ -198,9 +201,11 @@ router.post('/disable', auth, async (req, res) => {
       mfaEnabled: false,
       mfaSecret: null,
       backupCodes: null,
+      mfaLastUsedStep: null,
       emailOtpSecret: null,
       emailOtpExpiry: null
     });
+    await revokeUserSessions(user.id, { except: req.sessionId });
 
     res.json({
       success: true,
@@ -253,7 +258,7 @@ router.post('/backup-codes/regenerate', auth, async (req, res) => {
 
     // Generate new backup codes
     const backupCodes = mfaUtils.generateBackupCodes();
-    await user.update({ backupCodes });
+    await user.update({ backupCodes: mfaUtils.hashBackupCodes(backupCodes) });
 
     res.json({
       success: true,
@@ -267,171 +272,6 @@ router.post('/backup-codes/regenerate', auth, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to regenerate backup codes' 
-    });
-  }
-});
-
-// Send email OTP (for login)
-router.post('/email-otp/send', async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email is required' 
-      });
-    }
-
-    if (!mfaUtils.isEmailConfigured()) {
-      return res.status(503).json({ 
-        success: false, 
-        message: 'Email service not configured' 
-      });
-    }
-
-    const user = await User.findOne({ where: { email, isActive: true } });
-    if (!user) {
-      // Don't reveal if user exists
-      return res.json({
-        success: true,
-        message: 'If the email exists, an OTP has been sent'
-      });
-    }
-
-    // Generate and send OTP
-    const { otp, expiry } = mfaUtils.generateEmailOTP();
-    await mfaUtils.sendEmailOTP(email, otp, user.firstName);
-
-    // Store OTP hash
-    const otpHash = mfaUtils.hashSecret(otp);
-    await user.update({
-      emailOtpSecret: otpHash,
-      emailOtpExpiry: expiry
-    });
-
-    res.json({
-      success: true,
-      message: 'OTP sent to your email'
-    });
-  } catch (error) {
-    console.error('Email OTP send error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to send email OTP' 
-    });
-  }
-});
-
-// Verify email OTP (for login)
-router.post('/email-otp/verify', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-
-    if (!email || !otp) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email and OTP are required' 
-      });
-    }
-
-    const user = await User.findOne({ where: { email, isActive: true } });
-    if (!user) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid email or OTP' 
-      });
-    }
-
-    // Verify OTP
-    const otpHash = mfaUtils.hashSecret(otp);
-    const isValid = mfaUtils.verifyEmailOTP(
-      otpHash, 
-      user.emailOtpSecret, 
-      user.emailOtpExpiry
-    );
-
-    if (!isValid) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid or expired OTP' 
-      });
-    }
-
-    // Clear used OTP
-    await user.update({
-      emailOtpSecret: null,
-      emailOtpExpiry: null
-    });
-
-    res.json({
-      success: true,
-      message: 'Email OTP verified successfully'
-    });
-  } catch (error) {
-    console.error('Email OTP verification error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to verify email OTP' 
-    });
-  }
-});
-
-// Emergency MFA reset (for cases like email changes)
-router.post('/emergency-reset', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty(),
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: errors.array() 
-      });
-    }
-
-    const { email, password } = req.body;
-
-    // Find user by email
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ 
-        message: 'User not found',
-        code: 'USER_NOT_FOUND'
-      });
-    }
-
-    // Verify password
-    const isValidPassword = await user.validatePassword(password);
-    if (!isValidPassword) {
-      return res.status(401).json({ 
-        message: 'Invalid password',
-        code: 'INVALID_PASSWORD'
-      });
-    }
-
-    // Reset MFA settings
-    await user.update({
-      mfaEnabled: false,
-      mfaSecret: null,
-      backupCodes: null,
-      emailOtpSecret: null,
-      emailOtpExpiry: null
-    });
-
-    console.log(`Emergency MFA reset for user: ${user.id} (${email})`);
-
-    res.json({
-      success: true,
-      message: 'MFA has been reset. You can now log in and set up MFA again.'
-    });
-
-  } catch (error) {
-    console.error('Emergency MFA reset error:', error);
-    res.status(500).json({ 
-      message: 'Failed to reset MFA',
-      code: 'RESET_ERROR'
     });
   }
 });

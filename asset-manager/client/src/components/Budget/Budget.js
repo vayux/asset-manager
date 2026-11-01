@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { ArrowDownTrayIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { PlusIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
 const tagOptions = [
@@ -21,7 +21,7 @@ const Budget = () => {
   const [showAdd, setShowAdd] = useState(false);
   const [newCat, setNewCat] = useState({ name: '', tag: 'need' });
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
       const [catRes, entryRes] = await Promise.all([
@@ -42,11 +42,11 @@ const Budget = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [month]);
 
   useEffect(() => {
     fetchAll();
-  }, [month]);
+  }, [fetchAll]);
 
   const handleAmountChange = (catId, val) => {
     setEntries((prev) => ({ ...prev, [catId]: val }));

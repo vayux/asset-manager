@@ -24,18 +24,19 @@ const BudgetEntry = sequelize.define('BudgetEntry', {
     allowNull: false,
   },
   budgetedAmount: {
-    type: DataTypes.DECIMAL(12,2),
+    type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
     field: 'budgeted_amount'
   },
   spentAmount: {
-    type: DataTypes.DECIMAL(12,2),
+    type: DataTypes.DECIMAL(15, 2),
     allowNull: false,
     defaultValue: 0,
     field: 'spent_amount'
   },
 }, {
   tableName: 'budget_entries',
+  indexes: [{ name: 'budget_entries_user_id_category_id_month', unique: true, fields: ['user_id', 'category_id', 'month'] }],
   underscored: true,
 });
 

@@ -1,147 +1,154 @@
 const nodemailer = require('nodemailer');
 
-// Email transporter configuration
 let transporter = null;
+let fromAddress = null;
 
+// One mailer for alerts and OTPs. EMAIL_* (any SMTP server) takes precedence; GMAIL_* is still accepted.
 const initializeEmailService = () => {
-  if (!process.env.EMAIL_HOST) {
-    console.warn('Email service not configured - skipping email notifications');
-    return;
-  }
-
-  try {
-    transporter = nodemailer.createTransporter({
+  transporter = null;
+  if (process.env.EMAIL_HOST) {
+    transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT || 587,
-      secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+      port: parseInt(process.env.EMAIL_PORT, 10) || 587,
+      secure: process.env.EMAIL_SECURE === 'true',
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
     });
-
-    console.log('Email service initialized successfully');
-  } catch (error) {
-    console.error('Failed to initialize email service:', error);
+    fromAddress = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+  } else if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+    });
+    fromAddress = process.env.EMAIL_FROM || process.env.GMAIL_USER;
+  } else if (process.env.NODE_ENV !== 'test') {
+    console.warn('Email service not configured - skipping email notifications');
   }
 };
 
-// Initialize on module load
 initializeEmailService();
 
-// Email templates
+const isEmailConfigured = () => transporter !== null;
+
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const formatINR = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+const layout = (heading, color, body, footer) => `
+  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+      <h2 style="color: ${color}; margin: 0 0 20px 0;">${heading}</h2>
+      ${body}
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">${footer}</p>
+    </div>
+  </div>
+`;
+
+const box = (content) => `<div style="background: white; padding: 15px; border-radius: 5px; margin: 15px 0;">${content}</div>`;
+
 const emailTemplates = {
   securityAlert: (data) => ({
-    subject: '🔒 Security Alert - MoneyMind',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <h2 style="color: #dc3545; margin: 0 0 20px 0;">🔒 Security Alert</h2>
-          <p>Hello ${data.userName},</p>
-          <p>We detected important security activity on your MoneyMind account:</p>
-          <div style="background: white; padding: 15px; border-radius: 5px; margin: 15px 0;">
-            <strong>Activity:</strong> ${data.activity}<br>
-            <strong>Time:</strong> ${data.timestamp}<br>
-            <strong>IP Address:</strong> ${data.ipAddress || 'Unknown'}<br>
-            ${data.location ? `<strong>Location:</strong> ${data.location}<br>` : ''}
-          </div>
-          <p>If this was you, no action is needed. If you don't recognize this activity, please:</p>
-          <ul>
-            <li>Change your password immediately</li>
-            <li>Review your account activity</li>
-            <li>Contact support if you need assistance</li>
-          </ul>
-          <p style="margin-top: 30px; font-size: 12px; color: #666;">
-            This is an automated security notification from MoneyMind.
-          </p>
-        </div>
-      </div>
-    `
+    subject: 'Security Alert - MoneyMind',
+    html: layout('Security Alert', '#dc3545', `
+      <p>Hello ${escapeHtml(data.userName)},</p>
+      <p>We detected important security activity on your MoneyMind account:</p>
+      ${box(`
+        <strong>Activity:</strong> ${escapeHtml(data.activity)}<br>
+        <strong>Time:</strong> ${escapeHtml(data.timestamp)}<br>
+        <strong>IP Address:</strong> ${escapeHtml(data.ipAddress || 'Unknown')}<br>
+        ${data.location ? `<strong>Location:</strong> ${escapeHtml(data.location)}<br>` : ''}
+      `)}
+      <p>If this was you, no action is needed. If you don't recognize this activity, change your password immediately and review your account activity.</p>
+    `, 'This is an automated security notification from MoneyMind.'),
   }),
 
   investmentUpdate: (data) => ({
-    subject: '📈 Investment Update - MoneyMind',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <h2 style="color: #28a745; margin: 0 0 20px 0;">📈 Investment Update</h2>
-          <p>Hello ${data.userName},</p>
-          <p>Here's an update on your investment activity:</p>
-          <div style="background: white; padding: 15px; border-radius: 5px; margin: 15px 0;">
-            <strong>Activity:</strong> ${data.activity}<br>
-            <strong>Investment:</strong> ${data.investmentName}<br>
-            <strong>Amount:</strong> $${data.amount}<br>
-            <strong>Date:</strong> ${data.date}<br>
-          </div>
-          ${data.portfolioValue ? `
-            <p><strong>Current Portfolio Value:</strong> $${data.portfolioValue}</p>
-          ` : ''}
-          <p style="margin-top: 30px; font-size: 12px; color: #666;">
-            You can manage your notification preferences in your MoneyMind account settings.
-          </p>
-        </div>
-      </div>
-    `
+    subject: 'Investment Update - MoneyMind',
+    html: layout('Investment Update', '#28a745', `
+      <p>Hello ${escapeHtml(data.userName)},</p>
+      <p>Here's an update on your investment activity:</p>
+      ${box(`
+        <strong>Activity:</strong> ${escapeHtml(data.activity)}<br>
+        <strong>Investment:</strong> ${escapeHtml(data.investmentName)}<br>
+        <strong>Amount:</strong> ${formatINR(data.amount)}<br>
+        <strong>Date:</strong> ${escapeHtml(data.date)}<br>
+      `)}
+      ${data.portfolioValue != null ? `<p><strong>Current Portfolio Value:</strong> ${formatINR(data.portfolioValue)}</p>` : ''}
+    `, 'You can manage your notification preferences in your MoneyMind account settings.'),
   }),
 
   generalNotification: (data) => ({
-    subject: `📧 ${data.subject} - MoneyMind`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <h2 style="color: #007bff; margin: 0 0 20px 0;">📧 ${data.subject}</h2>
-          <p>Hello ${data.userName},</p>
-          <div style="background: white; padding: 15px; border-radius: 5px; margin: 15px 0;">
-            ${data.content}
-          </div>
-          <p style="margin-top: 30px; font-size: 12px; color: #666;">
-            This notification was sent from your MoneyMind account.
-          </p>
-        </div>
+    subject: `${data.subject} - MoneyMind`,
+    html: layout(escapeHtml(data.subject), '#007bff', `
+      <p>Hello ${escapeHtml(data.userName)},</p>
+      ${box(escapeHtml(data.content).replace(/\n/g, '<br>'))}
+    `, 'This notification was sent from your MoneyMind account.'),
+  }),
+
+  verifyEmail: (data) => ({
+    subject: 'Confirm your email - MoneyMind',
+    html: layout('Confirm your email', '#007bff', `
+      <p>Hello ${escapeHtml(data.firstName)},</p>
+      <p>Confirm this address for your MoneyMind account:</p>
+      <p><a href="${escapeHtml(data.link)}" style="background:#007bff;color:#fff;padding:10px 18px;border-radius:5px;text-decoration:none;">Confirm email</a></p>
+      <p>The link expires in 24 hours. If you did not create an account, ignore this email.</p>
+    `, 'This is an automated message from MoneyMind. Please do not reply to this email.'),
+  }),
+
+  passwordReset: (data) => ({
+    subject: 'Reset your password - MoneyMind',
+    html: layout('Reset your password', '#dc3545', `
+      <p>Hello ${escapeHtml(data.firstName)},</p>
+      <p>Someone asked to reset the password for your MoneyMind account.</p>
+      <p><a href="${escapeHtml(data.link)}" style="background:#dc3545;color:#fff;padding:10px 18px;border-radius:5px;text-decoration:none;">Choose a new password</a></p>
+      <p>The link expires in 30 minutes and can be used once. If this wasn't you, ignore this email; your password is unchanged.</p>
+    `, 'This is an automated security message from MoneyMind.'),
+  }),
+
+  loginOtp: (data) => ({
+    subject: 'MoneyMind - Login Verification Code',
+    html: layout('Login Verification', '#333', `
+      <p>Hello ${escapeHtml(data.firstName)},</p>
+      <p>Your verification code is:</p>
+      <div style="background-color: #fff; padding: 20px; text-align: center; margin: 20px 0;">
+        <h1 style="color: #007bff; margin: 0; font-size: 32px; letter-spacing: 5px;">${escapeHtml(data.otp)}</h1>
       </div>
-    `
-  })
+      <p>This code will expire in 10 minutes. If you didn't request it, change your password.</p>
+    `, 'This is an automated message from MoneyMind. Please do not reply to this email.'),
+  }),
 };
 
-// Send email function
 const sendEmail = async (to, template, data) => {
   if (!transporter) {
-    console.log('Email service not available - skipping email notification');
     return { success: false, message: 'Email service not configured' };
   }
 
   try {
-    const emailContent = emailTemplates[template](data);
-    
-    const mailOptions = {
-      from: `"MoneyMind" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
-      to: to,
-      subject: emailContent.subject,
-      html: emailContent.html,
-    };
-
-    const result = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully:', result.messageId);
-    
-    return { success: true, messageId: result.messageId };
+    const { subject, html } = emailTemplates[template](data);
+    const result = await transporter.sendMail({ from: `"MoneyMind" <${fromAddress}>`, to, subject, html });
+    return { success: true, messageId: result?.messageId };
   } catch (error) {
-    console.error('Failed to send email:', error);
+    console.error('Failed to send email:', error.message);
     return { success: false, message: error.message };
   }
 };
 
-// Notification functions for different activities
+const fullName = (user) => `${user.firstName} ${user.lastName}`;
+
 const sendSecurityAlert = async (user, activity, ipAddress = null, location = null) => {
   if (!user.securityAlerts) {
     return { success: false, message: 'Security alerts disabled for user' };
   }
-
-  return await sendEmail(user.email, 'securityAlert', {
-    userName: `${user.firstName} ${user.lastName}`,
+  return sendEmail(user.email, 'securityAlert', {
+    userName: fullName(user),
     activity,
-    timestamp: new Date().toLocaleString(),
+    timestamp: new Date().toLocaleString('en-IN', { timeZone: process.env.APP_TIMEZONE || 'Asia/Kolkata' }),
     ipAddress,
-    location
+    location,
   });
 };
 
@@ -149,14 +156,13 @@ const sendInvestmentUpdate = async (user, activity, investmentName, amount, port
   if (!user.investmentUpdates) {
     return { success: false, message: 'Investment updates disabled for user' };
   }
-
-  return await sendEmail(user.email, 'investmentUpdate', {
-    userName: `${user.firstName} ${user.lastName}`,
+  return sendEmail(user.email, 'investmentUpdate', {
+    userName: fullName(user),
     activity,
     investmentName,
-    amount: amount.toLocaleString(),
-    date: new Date().toLocaleDateString(),
-    portfolioValue: portfolioValue ? portfolioValue.toLocaleString() : null
+    amount,
+    date: new Date().toLocaleDateString('en-IN'),
+    portfolioValue,
   });
 };
 
@@ -164,18 +170,42 @@ const sendGeneralNotification = async (user, subject, content) => {
   if (!user.emailNotifications) {
     return { success: false, message: 'Email notifications disabled for user' };
   }
+  return sendEmail(user.email, 'generalNotification', { userName: fullName(user), subject, content });
+};
 
-  return await sendEmail(user.email, 'generalNotification', {
-    userName: `${user.firstName} ${user.lastName}`,
-    subject,
-    content
-  });
+const sendLoginOtp = async (user, otp) => {
+  const result = await sendEmail(user.email, 'loginOtp', { firstName: user.firstName, otp });
+  if (!result.success) {
+    throw new Error('Failed to send verification email');
+  }
+  return result;
+};
+
+const clientUrl = (path, token) => `${process.env.CLIENT_URL || 'http://localhost:3000'}${path}?token=${encodeURIComponent(token)}`;
+
+const sendVerificationEmail = (user, token) =>
+  sendEmail(user.email, 'verifyEmail', { firstName: user.firstName, link: clientUrl('/verify-email', token) });
+
+const sendPasswordResetEmail = (user, token) =>
+  sendEmail(user.email, 'passwordReset', { firstName: user.firstName, link: clientUrl('/reset-password', token) });
+
+// Lets tests swap in a fake transport
+const setTransporterForTesting = (fake) => {
+  transporter = fake;
+  fromAddress = fake ? 'test@example.com' : null;
 };
 
 module.exports = {
   sendSecurityAlert,
   sendInvestmentUpdate,
   sendGeneralNotification,
+  sendLoginOtp,
+  sendVerificationEmail,
+  sendPasswordResetEmail,
   sendEmail,
-  initializeEmailService
-}; 
+  initializeEmailService,
+  isEmailConfigured,
+  escapeHtml,
+  formatINR,
+  setTransporterForTesting,
+};

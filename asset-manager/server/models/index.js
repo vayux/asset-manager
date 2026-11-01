@@ -9,6 +9,8 @@ const BudgetCategory = require('./BudgetCategory');
 const BudgetEntry = require('./BudgetEntry');
 const Income = require('./Income');
 const Goal = require('./Goal');
+const Session = require('./Session');
+const UserToken = require('./UserToken');
 
 // Define associations
 User.hasMany(Investment, { foreignKey: 'userId', as: 'investments' });
@@ -49,8 +51,16 @@ Income.belongsTo(User,{foreignKey:'userId',as:'user'});
 User.hasMany(Goal,{foreignKey:'userId',as:'goals'});
 Goal.belongsTo(User,{foreignKey:'userId',as:'user'});
 
+// Sessions and emailed tokens
+User.hasMany(Session,{foreignKey:'userId',as:'sessions',onDelete:'CASCADE'});
+Session.belongsTo(User,{foreignKey:'userId',as:'user'});
+User.hasMany(UserToken,{foreignKey:'userId',as:'tokens',onDelete:'CASCADE'});
+UserToken.belongsTo(User,{foreignKey:'userId',as:'user'});
+
 module.exports = {
   User,
+  Session,
+  UserToken,
   Investment,
   InvestmentHistory,
   PortfolioSnapshot,

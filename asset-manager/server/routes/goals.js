@@ -2,9 +2,19 @@ const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const { Goal, Investment, Asset, Liability } = require('../models');
 const authMiddleware = require('../middleware/auth');
+const { handleValidation } = require('../middleware/validate');
+const pick = require('../utils/pick');
 
 const router = express.Router();
 router.use(authMiddleware);
+
+const GOAL_FIELDS = ['name', 'description', 'targetAmount', 'targetDate', 'currentAmount', 'monthlyContribution', 'scope'];
+const MAX_PROJECTION_MONTHS = 600;
+
+const monthsUntil = (targetDate) => Math.min(
+  MAX_PROJECTION_MONTHS,
+  Math.max(1, Math.round((new Date(targetDate) - new Date()) / (30 * 24 * 60 * 60 * 1000))),
+);
 
 // List goals
 router.get('/', async (req, res) => {
@@ -18,6 +28,8 @@ router.post('/', [
   body('targetAmount').isFloat({ min: 0.01 }),
   body('targetDate').isISO8601(),
   body('scope').optional().isIn(['investments','net_worth']),
+  body('currentAmount').optional().isFloat({ min: 0 }),
+  body('monthlyContribution').optional().isFloat({ min: 0 }),
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -37,16 +49,22 @@ router.post('/', [
 // Update goal
 router.put('/:id', [
   param('id').isUUID(),
+  body('name').optional().notEmpty(),
+  body('targetAmount').optional().isFloat({ min: 0.01 }),
+  body('targetDate').optional().isISO8601(),
+  body('currentAmount').optional().isFloat({ min: 0 }),
+  body('monthlyContribution').optional().isFloat({ min: 0 }),
   body('scope').optional().isIn(['investments','net_worth']),
+  handleValidation,
 ], async (req, res) => {
   const goal = await Goal.findOne({ where: { id: req.params.id, userId: req.user.id } });
   if (!goal) return res.status(404).json({ message: 'Not found' });
-  await goal.update(req.body);
+  await goal.update(pick(req.body, GOAL_FIELDS));
   res.json({ goal });
 });
 
 // Delete goal
-router.delete('/:id', [ param('id').isUUID() ], async (req, res) => {
+router.delete('/:id', [ param('id').isUUID(), handleValidation ], async (req, res) => {
   const goal = await Goal.findOne({ where: { id: req.params.id, userId: req.user.id } });
   if (!goal) return res.status(404).json({ message: 'Not found' });
   await goal.destroy();
@@ -54,12 +72,12 @@ router.delete('/:id', [ param('id').isUUID() ], async (req, res) => {
 });
 
 // Projection endpoint
-router.get('/:id/projection', [ param('id').isUUID(), query('contribution').optional().isFloat({ min: 0 }), query('months').optional().isInt({ min: 1 }) ], async (req, res) => {
+router.get('/:id/projection', [ param('id').isUUID(), query('contribution').optional().isFloat({ min: 0 }), query('months').optional().isInt({ min: 1, max: MAX_PROJECTION_MONTHS }), handleValidation ], async (req, res) => {
   const goal = await Goal.findOne({ where: { id: req.params.id, userId: req.user.id } });
   if (!goal) return res.status(404).json({ message: 'Not found' });
   const contribution = parseFloat(req.query.contribution || goal.monthlyContribution || 0);
   const today = new Date();
-  const monthsToTarget = req.query.months ? parseInt(req.query.months, 10) : Math.max(1, Math.round((new Date(goal.targetDate) - today) / (30 * 24 * 60 * 60 * 1000)));
+  const monthsToTarget = req.query.months ? parseInt(req.query.months, 10) : monthsUntil(goal.targetDate);
   const data = [];
   let amount = parseFloat(goal.currentAmount || 0);
   for (let m = 0; m <= monthsToTarget; m++) {
@@ -73,15 +91,14 @@ router.get('/:id/projection', [ param('id').isUUID(), query('contribution').opti
   res.json({ projection: data });
 });
 
-router.get('/:id/projection/montecarlo', [ param('id').isUUID(), query('contribution').optional().isFloat({ min: 0 }), query('sims').optional().isInt({ min: 100, max: 5000 }) ], async (req, res) => {
+router.get('/:id/projection/montecarlo', [ param('id').isUUID(), query('contribution').optional().isFloat({ min: 0 }), query('sims').optional().isInt({ min: 100, max: 5000 }), handleValidation ], async (req, res) => {
   const goal = await Goal.findOne({ where: { id: req.params.id, userId: req.user.id } });
   if (!goal) return res.status(404).json({ message: 'Not found' });
   const contribution = parseFloat(req.query.contribution || goal.monthlyContribution || 0);
   const sims = parseInt(req.query.sims || '1000', 10);
   const meanReturn = 0.005; // 0.5% monthly mean
   const stdDev = 0.03; // 3% monthly std dev
-  const today = new Date();
-  const monthsToTarget = Math.max(1, Math.round((new Date(goal.targetDate) - today) / (30 * 24 * 60 * 60 * 1000)));
+  const monthsToTarget = monthsUntil(goal.targetDate);
 
   // Determine starting amount
   let baseAmount = parseFloat(goal.currentAmount || 0);

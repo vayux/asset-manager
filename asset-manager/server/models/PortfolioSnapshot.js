@@ -24,6 +24,21 @@ const PortfolioSnapshot = sequelize.define('PortfolioSnapshot', {
     allowNull: false,
     defaultValue: 0,
   },
+  totalAssets: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
+  totalLiabilities: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
+  netWorth: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0,
+  },
   categoryBreakdown: {
     type: DataTypes.JSONB,
     allowNull: true,
@@ -44,7 +59,7 @@ const PortfolioSnapshot = sequelize.define('PortfolioSnapshot', {
     comment: 'True if manually created, false if auto-generated',
   },
 }, {
-  // Remove manual indexes to avoid column naming mismatch
+  indexes: [{ name: 'portfolio_snapshots_user_id_snapshot_date', unique: true, fields: ['user_id', 'snapshot_date'] }],
 });
 
 module.exports = PortfolioSnapshot; 

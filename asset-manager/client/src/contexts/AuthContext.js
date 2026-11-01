@@ -1,6 +1,51 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+
+// The refresh token lives in an httpOnly cookie; the access token is kept in memory only
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+
+let accessToken = null;
+export const getAccessToken = () => accessToken;
+
+const setAccessToken = (token) => {
+  accessToken = token;
+  if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+  else delete axios.defaults.headers.common.Authorization;
+};
+
+const NO_RETRY_PATHS = ['/api/auth/login', '/api/auth/register', '/api/auth/refresh', '/api/auth/logout',
+  '/api/auth/forgot-password', '/api/auth/reset-password', '/api/auth/verify-email'];
+const ACCESS_TOKEN_RENEW_MS = 10 * 60 * 1000;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Only one refresh runs at a time; concurrent 401s wait for the same promise.
+// A 409 means another tab rotated the cookie a moment ago, so retry with the new cookie.
+let refreshPromise = null;
+const refreshSession = () => {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      let lastError;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const { data } = await axios.post('/api/auth/refresh');
+          setAccessToken(data.accessToken);
+          return data;
+        } catch (error) {
+          lastError = error;
+          if (error.response?.status !== 409) break;
+          await wait(300);
+        }
+      }
+      setAccessToken(null);
+      throw lastError;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+};
 
 const AuthContext = createContext();
 
@@ -12,222 +57,150 @@ export const useAuth = () => {
   return context;
 };
 
+const reportErrors = (error, fallback) => {
+  const message = error.response?.data?.message || fallback;
+  const errors = error.response?.data?.errors;
+  if (errors && Array.isArray(errors)) {
+    errors.forEach(err => toast.error(err.message || err.msg));
+  } else {
+    toast.error(message);
+  }
+  return { success: false, error: message, errors };
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Token refresh function
-  const refreshAccessToken = async () => {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
-    }
+  const endSession = useCallback(() => {
+    setAccessToken(null);
+    setUser(null);
+  }, []);
 
-    try {
-      const response = await axios.post('/api/auth/refresh', {
-        refreshToken
-      });
-
-      const { accessToken, refreshToken: newRefreshToken } = response.data;
-      
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', newRefreshToken);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-      
-      return accessToken;
-    } catch (error) {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      delete axios.defaults.headers.common['Authorization'];
-      setUser(null);
-      throw error;
-    }
-  };
-
-  // Set up axios interceptor for token
   useEffect(() => {
-    // Support both old and new token storage formats
-    const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
-    if (accessToken) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-    }
-
-    // Add response interceptor to handle token expiration
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-
-          // Check if it's a token expiration error
-          if (error.response?.data?.code === 'TOKEN_EXPIRED' && !isRefreshing) {
-            setIsRefreshing(true);
-            
-            try {
-              const newToken = await refreshAccessToken();
-              originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
-              setIsRefreshing(false);
-              return axios(originalRequest);
-            } catch (refreshError) {
-              setIsRefreshing(false);
-              setUser(null);
-              toast.error('Session expired. Please login again.');
-              return Promise.reject(refreshError);
-            }
-          }
-        }
-
-        // Handle other auth errors
-        if (error.response?.status === 401) {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          delete axios.defaults.headers.common['Authorization'];
-          setUser(null);
-          
-          const errorCode = error.response?.data?.code;
-          if (errorCode === 'TOKEN_EXPIRED') {
+        const original = error.config || {};
+        const skip = NO_RETRY_PATHS.some(path => (original.url || '').startsWith(path));
+        if (error.response?.status === 401 && !original._retry && !skip) {
+          original._retry = true;
+          try {
+            const data = await refreshSession();
+            setUser(data.user);
+            original.headers.set('Authorization', `Bearer ${data.accessToken}`);
+            return axios(original);
+          } catch (refreshError) {
+            endSession();
             toast.error('Session expired. Please login again.');
-          } else if (errorCode === 'INVALID_TOKEN') {
-            toast.error('Invalid session. Please login again.');
-          } else {
-            toast.error('Authentication failed. Please login again.');
           }
         }
-        
         return Promise.reject(error);
       }
     );
+    return () => axios.interceptors.response.eject(interceptor);
+  }, [endSession]);
 
-    return () => {
-      axios.interceptors.response.eject(interceptor);
-    };
-  }, [isRefreshing]);
-
-  // Check if user is authenticated on app start
+  // Restore the session from the refresh cookie on page load
   useEffect(() => {
-    const initializeAuth = async () => {
-      // Support both old and new token storage formats
-      const accessToken = localStorage.getItem('accessToken') || localStorage.getItem('token');
-      if (accessToken) {
-        try {
-          const response = await axios.get('/api/auth/profile');
-          setUser(response.data.user);
-        } catch (error) {
-          // Try to refresh token if access token is expired
-          if (error.response?.data?.code === 'TOKEN_EXPIRED') {
-            try {
-              await refreshAccessToken();
-              const response = await axios.get('/api/auth/profile');
-              setUser(response.data.user);
-            } catch (refreshError) {
-              localStorage.removeItem('accessToken');
-              localStorage.removeItem('refreshToken');
-              delete axios.defaults.headers.common['Authorization'];
-            }
-          } else {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
-            delete axios.defaults.headers.common['Authorization'];
-          }
-        }
-      }
-      setLoading(false);
-    };
-
-    initializeAuth();
+    refreshSession()
+      .then(data => setUser(data.user))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
+
+  // Renew the short-lived access token before it expires
+  const signedIn = Boolean(user);
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    const timer = setInterval(() => {
+      refreshSession().catch(endSession);
+    }, ACCESS_TOKEN_RENEW_MS);
+    return () => clearInterval(timer);
+  }, [signedIn, endSession]);
+
+  const storeSession = ({ accessToken: token, user: sessionUser }) => {
+    setAccessToken(token);
+    setUser(sessionUser);
+  };
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('/api/auth/login', {
-        email,
-        password,
-      });
-
-      // Support both old and new response formats
-      const { accessToken, refreshToken, token, user } = response.data;
-      const authToken = accessToken || token;
-      
-      if (accessToken && refreshToken) {
-        // New format with refresh tokens
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', refreshToken);
-        // Clean up old token if it exists
-        localStorage.removeItem('token');
-      } else if (token) {
-        // Old format - keep for backward compatibility
-        localStorage.setItem('token', token);
+      const { data } = await axios.post('/api/auth/login', { email, password });
+      if (data.requiresMFA) {
+        return { success: true, requiresMFA: true, mfaPendingToken: data.mfaPendingToken, methods: data.methods || [] };
       }
-      
-      axios.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
-      setUser(user);
-      
+      storeSession(data);
       toast.success('Login successful!');
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
-      const errors = error.response?.data?.errors;
-      
-      if (errors && Array.isArray(errors)) {
-        errors.forEach(err => toast.error(err.message));
-      } else {
-        toast.error(message);
-      }
-      
-      return { success: false, error: message, errors };
+      return reportErrors(error, 'Login failed');
+    }
+  };
+
+  const completeMfaLogin = async (mfaPendingToken, method, code) => {
+    try {
+      const { data } = await axios.post('/api/auth/login/mfa', { mfaPendingToken, method, code });
+      storeSession(data);
+      toast.success('Login successful!');
+      return { success: true };
+    } catch (error) {
+      const sessionExpired = error.response?.data?.code === 'MFA_SESSION_INVALID';
+      return { ...reportErrors(error, 'Verification failed'), sessionExpired };
+    }
+  };
+
+  const sendLoginEmailOtp = async (mfaPendingToken) => {
+    try {
+      await axios.post('/api/auth/login/email-otp', { mfaPendingToken });
+      toast.success('Verification code sent to your email');
+      return { success: true };
+    } catch (error) {
+      return reportErrors(error, 'Could not send verification code');
     }
   };
 
   const register = async (userData) => {
     try {
-      const response = await axios.post('/api/auth/register', userData);
-
-      // Support both old and new response formats
-      const { accessToken, refreshToken, token, user } = response.data;
-      const authToken = accessToken || token;
-      
-      if (accessToken && refreshToken) {
-        // New format with refresh tokens
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', refreshToken);
-        // Clean up old token if it exists
-        localStorage.removeItem('token');
-      } else if (token) {
-        // Old format - keep for backward compatibility
-        localStorage.setItem('token', token);
-      }
-      
-      axios.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
-      setUser(user);
-      
-      toast.success('Account created successfully!');
+      const { data } = await axios.post('/api/auth/register', userData);
+      storeSession(data);
+      toast.success(data.verificationEmailSent
+        ? 'Account created! Check your inbox to confirm your email.'
+        : 'Account created successfully!');
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed';
-      const errors = error.response?.data?.errors;
-      
-      if (errors && Array.isArray(errors)) {
-        errors.forEach(err => toast.error(err.message));
-      } else {
-        toast.error(message);
-      }
-      
-      return { success: false, error: message, errors };
+      return reportErrors(error, 'Registration failed');
     }
   };
 
-  const logout = () => {
-    // Clean up both old and new token formats
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('token');
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
+  const logout = async () => {
+    try {
+      await axios.post('/api/auth/logout');
+    } catch (error) {
+      // The local session is cleared either way
+    }
+    endSession();
     toast.success('Logged out successfully');
   };
+
+  const logoutOtherDevices = async () => {
+    try {
+      const { data } = await axios.post('/api/auth/logout-all');
+      toast.success(data.revoked ? `Signed out ${data.revoked} other session(s)` : 'No other active sessions');
+      return { success: true };
+    } catch (error) {
+      return reportErrors(error, 'Could not sign out other devices');
+    }
+  };
+
+  const reloadUser = useCallback(async () => {
+    try {
+      const { data } = await axios.get('/api/auth/profile');
+      setUser(data.user);
+    } catch (error) {
+      // Not signed in
+    }
+  }, []);
 
   const updateProfile = async (profileData) => {
     try {
@@ -236,9 +209,7 @@ export const AuthProvider = ({ children }) => {
       toast.success('Profile updated successfully!');
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Profile update failed';
-      toast.error(message);
-      return { success: false, error: message };
+      return reportErrors(error, 'Profile update failed');
     }
   };
 
@@ -246,8 +217,12 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     login,
+    completeMfaLogin,
+    sendLoginEmailOtp,
     register,
     logout,
+    logoutOtherDevices,
+    reloadUser,
     updateProfile,
   };
 
@@ -256,4 +231,4 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-}; 
+};

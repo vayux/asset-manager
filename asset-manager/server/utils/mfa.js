@@ -1,28 +1,13 @@
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const { Op } = require('sequelize');
+const emailService = require('./emailService');
+const { keyedHash, safeEqual } = require('./secretBox');
 
 class MFAUtils {
-  /**
-   * Check if email configuration is available
-   */
   isEmailConfigured() {
-    return !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
-  }
-
-  constructor() {
-    // Gmail SMTP configuration - only create if email is configured
-    this.emailTransporter = null;
-    if (this.isEmailConfigured()) {
-      this.emailTransporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.GMAIL_USER,
-          pass: process.env.GMAIL_APP_PASSWORD, // App password, not regular password
-        },
-      });
-    }
+    return emailService.isEmailConfigured();
   }
 
   /**
@@ -54,104 +39,78 @@ class MFAUtils {
   }
 
   /**
-   * Verify TOTP token
+   * Time step of a valid TOTP code, or null. One step of clock drift either way is accepted.
    */
-  verifyTOTP(token, secret, window = 2) {
-    try {
-      // Clean the token input (remove spaces, etc.)
-      const cleanToken = token.toString().replace(/\s/g, '');
-      
-      return speakeasy.totp.verify({
-        secret: secret,
-        encoding: 'base32',
-        token: cleanToken,
-        window: window, // Allow 2 steps before/after for clock drift
-      });
-    } catch (error) {
-      console.error('TOTP verification error:', error);
-      return false;
-    }
+  verifyTOTPStep(token, secret, window = 1) {
+    if (!secret) return null;
+    const result = speakeasy.totp.verifyDelta({
+      secret,
+      encoding: 'base32',
+      token: String(token).replace(/\s/g, ''),
+      window,
+    });
+    if (!result) return null;
+    return Math.floor(Date.now() / 1000 / 30) + result.delta;
   }
 
   /**
-   * Generate backup codes
+   * Accepts a TOTP code at most once: the step must be newer than the last one used.
+   * The conditional update makes concurrent requests with the same code race safely.
+   */
+  async consumeTOTP(user, token) {
+    const step = this.verifyTOTPStep(token, user.mfaSecret);
+    if (step === null) return false;
+    const [count] = await user.constructor.update({ mfaLastUsedStep: step }, {
+      where: {
+        id: user.id,
+        [Op.or]: [{ mfaLastUsedStep: null }, { mfaLastUsedStep: { [Op.lt]: step } }],
+      },
+    });
+    if (count === 1) user.setDataValue('mfaLastUsedStep', step);
+    return count === 1;
+  }
+
+  normalizeBackupCode(code) {
+    return String(code).toUpperCase().replace(/\s/g, '');
+  }
+
+  /**
+   * Generate backup codes (shown once; store only hashBackupCodes(codes))
    */
   generateBackupCodes(count = 8) {
-    const codes = [];
-    for (let i = 0; i < count; i++) {
-      // Generate 8-character alphanumeric codes
-      const code = crypto.randomBytes(4).toString('hex').toUpperCase();
-      codes.push(code);
-    }
-    return codes;
+    return Array.from({ length: count }, () => crypto.randomBytes(5).toString('hex').toUpperCase());
+  }
+
+  hashBackupCodes(codes) {
+    return codes.map((code) => keyedHash(this.normalizeBackupCode(code)));
   }
 
   /**
-   * Verify backup code
+   * Verify a backup code against stored hashes and return the hashes left after using it
    */
-  verifyBackupCode(inputCode, backupCodes) {
-    if (!backupCodes || !Array.isArray(backupCodes)) {
+  verifyBackupCode(inputCode, hashedCodes) {
+    if (!Array.isArray(hashedCodes)) {
       return { valid: false, remainingCodes: null };
     }
-
-    const normalizedInput = inputCode.toUpperCase().replace(/\s/g, '');
-    const codeIndex = backupCodes.indexOf(normalizedInput);
-
+    const inputHash = keyedHash(this.normalizeBackupCode(inputCode));
+    const codeIndex = hashedCodes.findIndex((hash) => safeEqual(hash, inputHash));
     if (codeIndex === -1) {
-      return { valid: false, remainingCodes: backupCodes };
+      return { valid: false, remainingCodes: hashedCodes };
     }
-
-    // Remove used code
-    const remainingCodes = backupCodes.filter((_, index) => index !== codeIndex);
-    return { valid: true, remainingCodes };
+    return { valid: true, remainingCodes: hashedCodes.filter((_, index) => index !== codeIndex) };
   }
 
   /**
    * Generate email OTP
    */
   generateEmailOTP() {
-    const otp = crypto.randomInt(100000, 999999).toString(); // 6-digit OTP
+    const otp = crypto.randomInt(100000, 1000000).toString(); // 6-digit OTP
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     return { otp, expiry };
   }
 
-  /**
-   * Send email OTP
-   */
-  async sendEmailOTP(email, otp, firstName = '') {
-    if (!this.emailTransporter) {
-      throw new Error('Email service not configured');
-    }
-
-    const mailOptions = {
-      from: process.env.GMAIL_USER,
-      to: email,
-      subject: 'MoneyMind - Login Verification Code',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">Login Verification</h2>
-          <p>Hello ${firstName},</p>
-          <p>Your verification code is:</p>
-          <div style="background-color: #f5f5f5; padding: 20px; text-align: center; margin: 20px 0;">
-            <h1 style="color: #007bff; margin: 0; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
-          </div>
-          <p>This code will expire in 10 minutes.</p>
-          <p>If you didn't request this code, please ignore this email.</p>
-          <hr style="margin: 30px 0;">
-          <p style="color: #666; font-size: 14px;">
-            This is an automated message from MoneyMind. Please do not reply to this email.
-          </p>
-        </div>
-      `,
-    };
-
-    try {
-      await this.emailTransporter.sendMail(mailOptions);
-      return true;
-    } catch (error) {
-      console.error('Failed to send email OTP:', error);
-      throw new Error('Failed to send verification email');
-    }
+  async sendEmailOTP(user, otp) {
+    return emailService.sendLoginOtp(user, otp);
   }
 
   /**
@@ -166,7 +125,9 @@ class MFAUtils {
       return false; // Expired
     }
 
-    return inputOtp === storedOtp;
+    const input = Buffer.from(String(inputOtp), 'utf8');
+    const stored = Buffer.from(String(storedOtp), 'utf8');
+    return input.length === stored.length && crypto.timingSafeEqual(input, stored);
   }
 
   /**
